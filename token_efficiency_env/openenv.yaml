@@ -1,9 +1,14 @@
 name: token-efficiency-env
 version: 0.1.0
 description: >
-  An RL environment that trains LLMs to answer correctly
-  using fewer tokens by dynamically allocating a token budget
-  based on task complexity.
-entry_point: env_server:TokenEfficiencyEnv
-action_schema: env_server:TokenEfficiencyAction
-observation_schema: env_server:TokenEfficiencyObservation
+  An RL environment that trains LLMs to answer correctly using fewer tokens
+  by self-allocating a token budget per question. The model must respond as
+  '<budget>N</budget><answer>text</answer>' and is scored on a 6-component
+  reward (correctness, efficiency, self-assessment, redundancy,
+  keyword verification, format quality), with anti-hacking cliffs for
+  bad_format / empty / parrot / overshoot. See ARCHITECTURE.md for details.
+
+# Environment class served by the OpenEnv HTTP/WebSocket app
+entry_point: token_efficiency_env.server.token_efficiency_env_environment:TokenEfficiencyEnvironment
+action_schema: token_efficiency_env.models:TokenEfficiencyAction
+observation_schema: token_efficiency_env.models:TokenEfficiencyObservation

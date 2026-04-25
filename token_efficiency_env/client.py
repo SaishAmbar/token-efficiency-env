@@ -1,12 +1,32 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
+"""TokenEfficiencyEnv client.
 
-"""Token Efficiency Env Environment Client."""
+Async WebSocket client for the TokenEfficiencyEnv environment server. Each
+client instance gets its own dedicated environment session on the server
+(curriculum state is per-session and does not bleed across trainers).
 
-from typing import Dict
+Usage (async):
+
+    >>> async with TokenEfficiencyEnv(base_url="http://localhost:8000") as env:
+    ...     result = await env.reset()
+    ...     print(result.observation.prompt)
+    ...
+    ...     result = await env.step(
+    ...         TokenEfficiencyAction(raw_response="<budget>20</budget><answer>Paris.</answer>")
+    ...     )
+    ...     print(result.reward, result.observation.reward_components)
+
+Usage (sync wrapper):
+
+    >>> with TokenEfficiencyEnv(base_url="http://localhost:8000").sync() as env:
+    ...     result = env.reset()
+    ...     result = env.step(TokenEfficiencyAction(raw_response="..."))
+
+Connecting to a Hugging Face Space:
+
+    >>> env = await TokenEfficiencyEnv.from_env("your-username/token-efficiency-env")
+"""
+
+from typing import Any, Dict
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
@@ -18,81 +38,37 @@ from .models import TokenEfficiencyAction, TokenEfficiencyObservation
 class TokenEfficiencyEnv(
     EnvClient[TokenEfficiencyAction, TokenEfficiencyObservation, State]
 ):
-    """
-    Client for the Token Efficiency Env Environment.
+    """Client for the TokenEfficiencyEnv environment."""
 
-    This client maintains a persistent WebSocket connection to the environment server,
-    enabling efficient multi-step interactions with lower latency.
-    Each client instance has its own dedicated environment session on the server.
+    def _step_payload(self, action: TokenEfficiencyAction) -> Dict[str, Any]:
+        return {"raw_response": action.raw_response}
 
-    Example:
-        >>> # Connect to a running server
-        >>> with TokenEfficiencyEnv(base_url="http://localhost:8000") as client:
-        ...     result = client.reset()
-        ...     print(result.observation.echoed_message)
-        ...
-        ...     result = client.step(TokenEfficiencyAction(message="Hello!"))
-        ...     print(result.observation.echoed_message)
+    def _parse_result(
+        self, payload: Dict[str, Any]
+    ) -> StepResult[TokenEfficiencyObservation]:
+        obs_data = payload.get("observation", {}) or {}
+        reward = payload.get("reward")
+        done = payload.get("done", False)
 
-    Example with Docker:
-        >>> # Automatically start container and connect
-        >>> client = TokenEfficiencyEnv.from_docker_image("token_efficiency_env-env:latest")
-        >>> try:
-        ...     result = client.reset()
-        ...     result = client.step(TokenEfficiencyAction(message="Test"))
-        ... finally:
-        ...     client.close()
-    """
-
-    def _step_payload(self, action: TokenEfficiencyAction) -> Dict:
-        """
-        Convert TokenEfficiencyAction to JSON payload for step message.
-
-        Args:
-            action: TokenEfficiencyAction instance
-
-        Returns:
-            Dictionary representation suitable for JSON encoding
-        """
-        return {
-            "message": action.message,
-        }
-
-    def _parse_result(self, payload: Dict) -> StepResult[TokenEfficiencyObservation]:
-        """
-        Parse server response into StepResult[TokenEfficiencyObservation].
-
-        Args:
-            payload: JSON response data from server
-
-        Returns:
-            StepResult with TokenEfficiencyObservation
-        """
-        obs_data = payload.get("observation", {})
         observation = TokenEfficiencyObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
-            done=payload.get("done", False),
-            reward=payload.get("reward"),
-            metadata=obs_data.get("metadata", {}),
+            prompt=obs_data.get("prompt", ""),
+            episode_token_limit=obs_data.get("episode_token_limit", 200),
+            answer=obs_data.get("answer", ""),
+            allocated_budget=obs_data.get("allocated_budget", 0),
+            tokens_used=obs_data.get("tokens_used", 0),
+            complexity=obs_data.get("complexity", ""),
+            phase=obs_data.get("phase", ""),
+            episode=obs_data.get("episode", 0),
+            avg_reward_50=obs_data.get("avg_reward_50", 0.0),
+            reward_components=obs_data.get("reward_components", {}) or {},
+            error=obs_data.get("error", ""),
+            done=done,
+            reward=reward,
         )
 
-        return StepResult(
-            observation=observation,
-            reward=payload.get("reward"),
-            done=payload.get("done", False),
-        )
+        return StepResult(observation=observation, reward=reward, done=done)
 
-    def _parse_state(self, payload: Dict) -> State:
-        """
-        Parse server response into State object.
-
-        Args:
-            payload: JSON response from state request
-
-        Returns:
-            State object with episode_id and step_count
-        """
+    def _parse_state(self, payload: Dict[str, Any]) -> State:
         return State(
             episode_id=payload.get("episode_id"),
             step_count=payload.get("step_count", 0),

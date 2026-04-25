@@ -1,27 +1,103 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-
 """
-Data models for the Token Efficiency Env Environment.
+Data models for the TokenEfficiencyEnv environment.
 
-The token_efficiency_env environment is a simple test environment that echoes back messages.
+The environment trains an LLM to answer questions correctly using fewer tokens
+by self-allocating a token budget per question. The model's response must be
+formatted as: ``<budget>N</budget><answer>text</answer>``.
+
+Action:
+    raw_response: The full XML-tagged response string the model produced.
+
+Observation:
+    prompt:               The question the model should answer.
+    episode_token_limit:  Hard upper bound on the budget the model may allocate.
+    answer:               Parsed answer text (populated after step()).
+    allocated_budget:     Budget the model self-allocated (clamped to [1, 200]).
+    tokens_used:          Actual token count of the answer.
+    complexity:           "easy" | "medium" | "hard".
+    phase:                Curriculum phase name.
+    episode:              Episode index.
+    avg_reward_50:        Rolling average reward over the last 50 episodes.
+    reward_components:    Per-component score breakdown from the 7-component scorer.
+    error:                Non-empty when an anti-hacking guard tripped (e.g. "bad_format").
 """
+
+from typing import Dict
 
 from openenv.core.env_server.types import Action, Observation
 from pydantic import Field
 
+# ─── Constants exposed to the trainer / clients ─────────────────────────
+MAX_TOKEN_LIMIT = 200
+
 
 class TokenEfficiencyAction(Action):
-    """Action for the Token Efficiency Env environment - just a message to echo."""
+    """Action sent by the trainer: the model's full XML-tagged response."""
 
-    message: str = Field(..., description="Message to echo back")
+    raw_response: str = Field(
+        ...,
+        description=(
+            "The model's full response, expected to follow the format "
+            "'<budget>N</budget><answer>text</answer>'."
+        ),
+    )
 
 
 class TokenEfficiencyObservation(Observation):
-    """Observation from the Token Efficiency Env environment - the echoed message."""
+    """Observation returned to the trainer after reset() and step().
 
-    echoed_message: str = Field(default="", description="The echoed message")
-    message_length: int = Field(default=0, description="Length of the echoed message")
+    Note: ``done``, ``reward``, and ``metadata`` are inherited from the base
+    ``Observation`` class. ``metadata`` is stripped on the wire by OpenEnv's
+    serializer, so anything the trainer needs to read must be a real field.
+    """
+
+    # Always present (after reset and step)
+    prompt: str = Field(
+        default="",
+        description="The question the agent should answer.",
+    )
+    episode_token_limit: int = Field(
+        default=MAX_TOKEN_LIMIT,
+        description="Hard upper bound on the budget the model may allocate.",
+    )
+
+    # Populated after step()
+    answer: str = Field(
+        default="",
+        description="Parsed answer text extracted from <answer>...</answer>.",
+    )
+    allocated_budget: int = Field(
+        default=0,
+        description="Budget the model self-allocated (clamped to [1, 200]).",
+    )
+    tokens_used: int = Field(
+        default=0,
+        description="Actual token count of the parsed answer.",
+    )
+    complexity: str = Field(
+        default="",
+        description='Question complexity: "easy", "medium", or "hard".',
+    )
+    phase: str = Field(
+        default="",
+        description="Current curriculum phase name.",
+    )
+    episode: int = Field(
+        default=0,
+        description="Episode index for this session.",
+    )
+    avg_reward_50: float = Field(
+        default=0.0,
+        description="Rolling average reward over the last 50 episodes.",
+    )
+    reward_components: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-component scores from the 7-component scorer.",
+    )
+    error: str = Field(
+        default="",
+        description=(
+            "Non-empty short tag when an anti-hacking guard tripped: "
+            '"bad_format", "empty", "repetition", or "too_long".'
+        ),
+    )

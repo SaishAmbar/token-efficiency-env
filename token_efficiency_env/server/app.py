@@ -49,7 +49,17 @@ app = create_app(
     TokenEfficiencyAction,
     TokenEfficiencyObservation,
     env_name="token_efficiency_env",
-    max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
+    # IMPORTANT: keep this at 1.
+    # OpenEnv's HTTP layer round-robins requests across this pool, with NO
+    # session affinity, so /reset can land on instance #3 and the matching
+    # /step on instance #5 — meaning the agent gets scored on a different
+    # question than the one it was asked. We rely on the curriculum +
+    # recent_rewards deque persisting across requests, so we need exactly
+    # one shared instance per server process.
+    #
+    # For parallel-rollout GRPO, run N separate server processes on N ports,
+    # each at max_concurrent_envs=1, and let the trainer load-balance.
+    max_concurrent_envs=1,
 )
 
 
