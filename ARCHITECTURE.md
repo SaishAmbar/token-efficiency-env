@@ -318,9 +318,30 @@ python _phase4_e2e.py
 | 2 | Replace Anthropic with HuggingFace Inference judge; add keyword fallback | ✅ done |
 | 3 | Reward redesign (6 components, asymmetric self-assessment, absolute efficiency); new anti-hacking cliffs | ✅ done |
 | 4 | Local end-to-end smoke test (HTTP + WebSocket) | ✅ done |
-| 6 | Rewrite both `README.md`s; remove or modernise `web_dashboard.py`; add a `CHANGELOG` | ⏳ next |
-| 7 | Training notebook scaffold (TRL `GRPOTrainer` + Qwen2.5-3B + N parallel env servers) | ⏳ pending |
+| 6 | Rewrite both `README.md`s; modernise `web_dashboard.py`; add a `CHANGELOG`; promote smoke tests to `tests/` | ✅ done |
+| 7 | Training notebook scaffold (TRL `GRPOTrainer` + Qwen2.5-3B + LoRA + held-out eval) | ✅ done |
 | 5 | Deploy as a HuggingFace Space (Docker SDK) — **deferred to last** | ⏳ pending |
+
+### Phase 7 layout (added in this phase)
+
+```
+training/
+  config.py             # TrainingConfig dataclass — single source of truth
+  prompts_split.py      # deterministic train/holdout split of PROMPT_BANK
+  server_pool.py        # spawn / health-check / teardown N uvicorn workers
+  reward_adapter.py     # InProcessRewardAdapter (default) + WSRewardAdapter
+notebooks/
+  train_grpo.ipynb              # main scaffold (16 cells, top-to-bottom)
+  eval_baseline_vs_trained.py   # standalone before/after eval harness
+requirements-train.txt          # trl + peft + accelerate + datasets
+tests/test_training_scaffold.py # offline smoke tests (config / split / adapter)
+```
+
+The reward adapter has **two backends** chosen by `TrainingConfig.reward_backend`:
+* `"in_process"` (default) — instantiates `TokenEfficiencyEnvironment` directly in the trainer's process. Fast, no servers, no ports. This is what GRPO actually wants because it sets the prompt itself; we just hand the env the trainer-chosen `current_task` before each `step()`.
+* `"ws"` — drives a real `ServerPool` over the WebSocket client. Optional, useful as a stress test of the deployed server path. Heavier per-call.
+
+Both expose the same `__call__(prompts, completions) -> list[float]`, so the notebook flips between them with one config flag.
 
 ---
 

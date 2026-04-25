@@ -6,9 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Added — Phase 7: Training scaffold
+
+- **`training/`** package — trainer-side glue, kept out of `token_efficiency_env/` so the env stays a pure environment with no ML-framework deps.
+  - `config.py` — `TrainingConfig` dataclass holding every knob (model, LoRA, GRPO hyperparams, reward backend, eval settings) with an `estimate_judge_calls()` cost guard so you see "this run will burn N API calls" *before* hitting Train.
+  - `prompts_split.py` — deterministic 18-train / 6-holdout split (last 2 of each tier). Hard-coded indices, not random-seeded, so reviewers can read which prompts the model was *not* trained on. Import-time `_assert_split_invariants()` blows up loudly if `prompts.py` ever drifts under us.
+  - `server_pool.py` — spawn / health-check (`/health`) / SIGTERM-then-SIGKILL teardown of N uvicorn workers on consecutive ports. Pre-flight checks ports are free; never leaks zombie workers on startup failure. Kept around for the optional WebSocket reward backend.
+  - `reward_adapter.py` — bridges `TokenEfficiencyEnvironment` into TRL's `reward_funcs(prompts, completions)` API. Two backends:
+    - `InProcessRewardAdapter` (default) — instantiates one env per rollout slot, drives them directly. No servers, no ports, no async; the trainer owns prompt selection.
+    - `WSRewardAdapter` — talks to a real `ServerPool` over the WebSocket client. Optional; useful for stress-testing the deployed server path.
+    - Both share `__call__` + `close()`, so the notebook flips backends with one config flag.
+    - Per-step reward + components logged to a thread-safe `RewardLog` for post-training plots.
+- **`notebooks/`** — Phase 7 entrypoints.
+  - `train_grpo.ipynb` — 16-cell scaffold: setup → config banner → split → optional pool → reward smoke test → tokenizer + model + LoRA → dataset build → baseline eval → `GRPOTrainer.train()` → trained eval → side-by-side table + reward curve → cleanup.
+  - `eval_baseline_vs_trained.py` — reusable eval harness (mean reward / correctness / tokens-used / overshoot rate / cliff rate) shared between the notebook and CLI users.
+  - `__init__.py` + `README.md`.
+- **`requirements-train.txt`** — `trl`, `peft`, `accelerate`, `transformers`, `datasets`, `bitsandbytes` (skipped on macOS), `jupyter`, `matplotlib`, `pandas`. Kept separate from `pyproject.toml` so the runtime env package stays slim.
+- **`tests/test_training_scaffold.py`** — 18 offline smoke tests covering config invariants, split disjointness/tier coverage, in-process adapter happy path + cliff propagation + defensive paths + completion-text normalisation + factory dispatch. Whole suite runs in ~30 s with the keyword judge.
+
+### Fixed
+
+- **`InProcessRewardAdapter` truthy-vs-`is None` bug** — `RewardLog` is falsy when empty (via `__len__`), so `self.log = log or RewardLog()` silently swapped the caller's instance for a new one and every appended row landed in a log nobody could read. Rewritten as `self.log = RewardLog() if log is None else log` (and same in `WSRewardAdapter` + `build_reward_func`). Caught by the new tests.
+- **Keyword scoring stem matching** — `judge.matches_keyword()` now uses prefix-stem matching for word keywords (`antibod` → `antibodies`, `purchas` → `purchasing`, `intelligen` → `intelligence`) while keeping strict full-word matching for purely numeric keywords (so `100` doesn't match `1000`). Both `judge._keyword_score` and `scorer.py`'s keyword_verification component go through the same primitive. Photosynthesis prompt's `expected_keywords` updated to `["plant", "sunlight", "oxygen"]` so a natural answer scores 1.0 instead of 0.0.
+- **`get_judge()` aliases** — accepts `hf` / `inference` / `remote` for HuggingFace and `offline` / `local` for keyword. Misspellings still raise a clear `ValueError`. Previously a typo broke every `/api/step` silently.
+- **Web dashboard prompt mismatch** — `/api/step` now returns the prompt that was actually scored, and the frontend displays "Scored against:" so a UI/backend question mismatch is immediately visible. Question dropdown re-resets the env on `onchange`.
+
 ### Planned
 
-- **Phase 7** — Training notebook scaffold (TRL `GRPOTrainer` + Qwen2.5-3B + N parallel env servers).
 - **Phase 5** — Deploy as a HuggingFace Space (Docker SDK). Deferred to last.
 
 ---

@@ -1,0 +1,36 @@
+# Phase 7 — training-only dependencies.
+#
+# Kept SEPARATE from token_efficiency_env/pyproject.toml on purpose: the env
+# package itself is a pure environment with no ML-framework deps, so it can
+# be installed inside a slim HF Space container without dragging torch + trl.
+#
+# Install side-by-side with the env package:
+#     pip install -e ./token_efficiency_env
+#     pip install -r requirements-train.txt
+#
+# Versions are pinned to ranges, not exact versions, because TRL ships
+# breaking changes often and pinning to a single point release ages badly.
+# When you find a combo that works on your hardware, freeze it locally with
+# `pip freeze > requirements-train.lock.txt`.
+
+# ─── Core RL trainer + LoRA stack ─────────────────────────────────────
+trl>=0.13.0,<1.0.0
+peft>=0.13.0,<1.0.0
+accelerate>=0.34.0,<2.0.0
+transformers>=4.46.0,<5.0.0
+datasets>=2.20.0,<4.0.0
+
+# ─── Tokenisation (Qwen needs the fast tokenizer) ─────────────────────
+sentencepiece>=0.2.0
+tiktoken>=0.7.0
+
+# ─── 4-bit / 8-bit quantisation (optional but recommended for 16GB GPUs)
+# Comment out if you're on Apple Silicon / CPU-only — bitsandbytes will
+# fail to install and isn't needed for full-precision LoRA on a >24GB card.
+bitsandbytes>=0.43.0; sys_platform != "darwin"
+
+# ─── Notebook + plotting ──────────────────────────────────────────────
+jupyter>=1.0.0
+matplotlib>=3.8.0
+pandas>=2.0.0
+tqdm>=4.66.0
