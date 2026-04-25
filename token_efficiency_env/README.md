@@ -47,19 +47,21 @@ Over many training steps, the model learns to be **both accurate AND concise**.
 ┌────────────────────────────────────────────────────────────────┐
 │                        Training Loop                           │
 │                                                                │
-│  1. env.reset()  →  picks a random question from PROMPT_BANK  │
+│  1. env.reset()  →  picks a CURRICULUM-AWARE question         │
 │                      returns: { prompt, episode_token_limit }  │
 │                                                                │
 │  2. Model generates response in the format:                    │
 │       <budget>60</budget><answer>Paris.</answer>               │
 │                                                                │
-│  3. env.step(action)  →  parses budget + answer               │
-│                           counts tokens used                   │
-│                           calls score_answer()                 │
-│                           returns reward (float 0 to 1)        │
+│  3. env.step(action)  →  anti-hacking checks                  │
+│                           parses budget + answer               │
+│                           runs 7-COMPONENT SCORER              │
+│                           logs all reward components           │
+│                           returns reward (float)               │
 │                                                                │
 │  4. RL trainer updates model weights based on reward           │
 │                                                                │
+│  Curriculum auto-advances when avg reward exceeds threshold    │
 │  Repeat thousands of times → model improves                    │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -98,7 +100,7 @@ token-efficiency-env/
 
 ### 4.1 `env_server.py`
 
-**What it is:** The heart of the project. Defines the RL environment.
+**What it is:** The heart of the project. Defines the RL environment with **curriculum learning**, **anti-reward-hacking protections**, and **structured monitoring**.
 
 **What it imports:**
 
@@ -106,84 +108,58 @@ token-efficiency-env/
 |--------|-----|
 | `re` | To parse `<budget>` and `<answer>` tags using regex |
 | `sys`, `os` | To add OpenEnv's source path so Python can find it |
+| `time` | For step timeout protection |
+| `logging` | For structured per-component reward monitoring |
 | `openenv.core.Environment` | Base class for all OpenEnv environments |
 | `pydantic.BaseModel` | For defining typed action/observation schemas |
 | `transformers.AutoTokenizer` | To count how many tokens the model's answer uses |
 | `prompts.PROMPT_BANK` | The list of questions to sample from |
-| `scorer.score_answer` | The function that returns the reward |
-| `random` | To randomly pick a question each episode |
-
-**The Tokenizer:**
-
-```python
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-3B-Instruct")
-```
-
-This loads the Qwen tokenizer at startup. It downloads ~few MB the first time, then caches.
-It is used to count exact token usage in the model's answer.
+| `scorer.score_answer` | The 7-component reward function |
+| `random` | For question selection within curriculum phases |
 
 ---
 
-**`TokenEfficiencyAction` — What the model sends:**
+**Curriculum Learning (4 phases):**
 
-```python
-class TokenEfficiencyAction(BaseModel):
-    raw_response: str
-```
+The environment adapts difficulty based on a rolling average reward:
 
-The entire model output (as a raw string) is wrapped in this object before being passed to `step()`.
-Example value of `raw_response`:
-```
-<budget>60</budget><answer>Gravity is the force that attracts objects toward each other.</answer>
-```
+| Phase | Mix | Advance When |
+|-------|-----|--------------|
+| Phase 1 | 100% easy | avg reward > 0.4 |
+| Phase 2 | 60% easy + 40% medium | avg reward > 0.5 |
+| Phase 3 | 30% easy + 40% medium + 30% hard | avg reward > 0.6 |
+| Phase 4 | 20% easy + 40% medium + 40% hard | Final phase |
 
 ---
 
-**`TokenEfficiencyObservation` — What the environment sends back:**
+**Anti-Reward-Hacking Protections:**
 
-```python
-class TokenEfficiencyObservation(BaseModel):
-    prompt: str
-    episode_token_limit: int = 200
-```
-
-After `reset()` is called, the model receives:
-- `prompt` — the question it needs to answer
-- `episode_token_limit` — the absolute maximum tokens allowed (always 200)
-
-The model must choose its OWN budget (≤ 200) via the `<budget>` tag.
+| Protection | What It Does |
+|------------|-------------|
+| Budget clamping | Forces budget to [1, 200] range |
+| Empty answer detection | Penalty for blank/whitespace answers |
+| Repetition guard | Catches "Paris Paris Paris" exploits (>60% same word) |
+| Answer length sanity | Hard cap at 500 tokens |
+| Step timeout | 30-second max per step |
 
 ---
-
-**`TokenEfficiencyEnv` — The environment class:**
-
-```python
-class TokenEfficiencyEnv(Environment):
-    def __init__(self): ...
-    def reset(self): ...
-    def step(self, action): ...
-    def state(self): ...
-```
-
-**`__init__`** — Sets up two instance variables:
-- `self.current_task` — stores the current question dict (initially `None`)
-- `self.episode_token_limit` — hardcoded to `200`
 
 **`reset()`** — Starts a new episode:
-1. Picks a random item from `PROMPT_BANK` (e.g. `{"prompt": "What is gravity?", "complexity": "medium"}`)
-2. Stores it in `self.current_task`
-3. Returns a `TokenEfficiencyObservation` with the prompt and token limit
+1. Checks if curriculum phase should advance (based on rolling avg reward)
+2. Picks a question **weighted by current curriculum phase** (not random)
+3. Logs episode info (phase, complexity, prompt)
+4. Returns a `TokenEfficiencyObservation` with prompt and token limit
 
 **`step(action)`** — Processes the model's response:
-1. Reads `action.raw_response` (the full model output string)
-2. Uses `re.search` to extract the number inside `<budget>N</budget>`
-3. Uses `re.search` to extract the text inside `<answer>text</answer>`
-4. If either tag is missing → returns `reward = -1.0` (bad format penalty)
-5. Counts tokens in the answer using the Qwen tokenizer
-6. Calls `score_answer()` with prompt, answer, budget, and tokens_used
-7. Returns a dict with `observation`, `reward`, `done=True`, and `info`
+1. Parses `<budget>` and `<answer>` tags (format check → -1.0 penalty if missing)
+2. **Anti-hacking checks**: budget clamping, empty answer, repetition guard, length sanity
+3. Counts tokens using Qwen tokenizer
+4. Calls 7-component `score_answer()` with complexity and keywords
+5. Tracks reward in rolling window for curriculum advancement
+6. **Logs all 7 reward components** for monitoring
+7. Returns `observation`, `reward`, `done=True`, and detailed `info` dict
 
-**`state()`** — Returns the current task (used for debugging/logging).
+**`state()`** — Returns current task, episode count, phase, and average reward.
 
 ---
 
@@ -230,10 +206,11 @@ The `scorer.py` uses prompt length as a proxy for complexity to judge whether th
 
 ### 4.4 `scorer.py`
 
-**What it is:** The reward function. Called by `env_server.step()` after every model response.
+**What it is:** The 7-component reward function. Called by `env_server.step()` after every model response.
 
 ```python
-def score_answer(prompt, response, allocated_budget, tokens_used) -> float
+def score_answer(prompt, response, allocated_budget, tokens_used,
+                 complexity="medium", expected_keywords=None) -> dict
 ```
 
 **Inputs:**
@@ -243,72 +220,76 @@ def score_answer(prompt, response, allocated_budget, tokens_used) -> float
 | `response` | str | The model's answer (extracted from `<answer>` tag) |
 | `allocated_budget` | int | The budget the model chose (from `<budget>` tag) |
 | `tokens_used` | int | Actual tokens in the answer (counted by tokenizer) |
+| `complexity` | str | Question complexity level ("easy", "medium", "hard") |
+| `expected_keywords` | list | Keyword stems to verify in the answer |
 
-**Output:** A single float reward between 0.0 and 1.0 (approximately).
+**Output:** A dict with `"reward"` (float) and `"details"` (per-component scores).
 
-The reward is built from **3 components**:
-
----
-
-**Component 1 — Correctness (50% weight)**
-
-Uses the Anthropic Claude API (`claude-haiku-4-5`) as an LLM judge:
-
-```python
-judge = client.messages.create(
-    model="claude-haiku-4-5-20251001",
-    max_tokens=10,
-    messages=[{"role": "user", "content": f"Question: {prompt}\nAnswer: {response}\nRate 0.0 to 1.0..."}]
-)
-correctness = float(judge.content[0].text.strip())
-```
-
-The judge returns a number like `0.8`. This is clamped to `[0.0, 1.0]`.
-If the API call fails (e.g. no key), `correctness = 0.0`.
+The reward is built from **7 independent components**:
 
 ---
 
-**Component 2 — Efficiency (30% weight)**
+**Component 1 — Correctness (40% weight)**
 
-Rewards using fewer tokens than the self-allocated budget:
-
-```python
-if tokens_used <= allocated_budget:
-    efficiency = 1.0 - (tokens_used / allocated_budget) * 0.3
-else:
-    efficiency = -0.5   # penalty for going over own budget
-```
-
-- If you used 20 out of 60 tokens → efficiency ≈ 0.90 (good)
-- If you used 60 out of 60 tokens → efficiency = 0.70
-- If you used 80 but allocated only 60 → efficiency = −0.5 (penalty)
+Uses Claude Haiku API as primary LLM judge. Clamped to [0.0, 1.0].
+If the API call fails, `correctness = 0.0`.
 
 ---
 
-**Component 3 — Budget Reasonableness (20% weight)**
+**Component 2 — Efficiency (20% weight)**
 
-Checks whether the model allocated an appropriate budget for the complexity:
+Rewards using fewer tokens than the self-allocated budget.
+Gradient penalty for exceeding budget (proportional to overshoot).
 
-```python
-prompt_length = len(prompt.split())          # word count as complexity proxy
-expected_ratio = min(prompt_length / 15, 1.0)
-allocated_ratio = min(allocated_budget / 200, 1.0)
-budget_reasonableness = 1.0 - abs(allocated_ratio - expected_ratio)
-```
+---
 
-- A short easy question (4 words) → expected_ratio ≈ 0.27 → budget ≈ 54 tokens is ideal
-- A long hard question (10 words) → expected_ratio ≈ 0.67 → budget ≈ 134 tokens is ideal
-- Allocating 200 tokens for "What is 2^8?" would score poorly here
+**Component 3 — Budget Reasonableness (10% weight)**
+
+Now uses the actual `complexity` label from PROMPT_BANK (not word count proxy):
+- Easy → ideal budget ≈ 30 tokens (15% of 200)
+- Medium → ideal budget ≈ 90 tokens (45% of 200)
+- Hard → ideal budget ≈ 160 tokens (80% of 200)
+
+---
+
+**Component 4 — Redundancy Penalty (10% weight)** *(NEW)*
+
+Measures unique information density. Uses unique word ratio + bigram analysis.
+Penalises "Paris. Paris is the capital. The capital is Paris." style answers.
+
+---
+
+**Component 5 — Self-Assessment Accuracy (10% weight)** *(NEW)*
+
+How close was the model's `<budget>` to actual `tokens_used`?
+Trains the model to predict its own output length accurately.
+
+---
+
+**Component 6 — Keyword Verification (5% weight)** *(NEW)*
+
+Secondary correctness check that does NOT rely on LLM judge.
+Uses `expected_keywords` from PROMPT_BANK to verify answer content.
+
+---
+
+**Component 7 — Format Quality (5% weight)** *(NEW)*
+
+Rewards clean, well-structured responses. Penalises excessive whitespace,
+too-short answers for hard questions, too-long answers for easy questions,
+and answers that just restate the question.
 
 ---
 
 **Final reward formula:**
 
 ```
-reward = 0.5 × correctness + 0.3 × efficiency + 0.2 × budget_reasonableness
+reward = 0.40 × correctness + 0.20 × efficiency + 0.10 × budget_reasonableness
+       + 0.10 × redundancy  + 0.10 × self_assessment
+       + 0.05 × keyword_verification + 0.05 × format_quality
 ```
 
-Rounded to 4 decimal places and returned as a float.
+Returned as a dict: `{"reward": float, "details": {component_scores}}`.
 
 ---
 
@@ -373,29 +354,32 @@ This strongly incentivizes the model to always follow the format during training
 Quick reference card:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  reward = 0.5 × correctness                         │
-│         + 0.3 × efficiency                          │
-│         + 0.2 × budget_reasonableness               │
-│                                                     │
-│  correctness        = Claude API score (0.0–1.0)    │
-│  efficiency         = how well budget was used      │
-│  budget_reasonableness = appropriate budget for Q   │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  reward = 0.40 × correctness                                │
+│         + 0.20 × efficiency                                 │
+│         + 0.10 × budget_reasonableness                      │
+│         + 0.10 × redundancy_penalty                         │
+│         + 0.10 × self_assessment_accuracy                   │
+│         + 0.05 × keyword_verification                       │
+│         + 0.05 × format_quality                             │
+│                                                              │
+│  7 independent signals — much harder to game than 3          │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 **Worked example:**
 
 Model answers: `<budget>20</budget><answer>Paris.</answer>`
-for the question: "What is the capital of France?"
+for the question: "What is the capital of France?" (easy, keywords: ["paris"])
 
-- `correctness` = 1.0 (Claude confirms "Paris" is correct)
-- `tokens_used` = 2, `allocated_budget` = 20
-- `efficiency` = 1.0 − (2/20) × 0.3 = **0.97**
-- `prompt_length` = 6 words → `expected_ratio` = 6/15 = 0.40 → ideal budget ≈ 80
-- `allocated_ratio` = 20/200 = 0.10
-- `budget_reasonableness` = 1 − |0.10 − 0.40| = **0.70**
-- **Final reward** = 0.5×1.0 + 0.3×0.97 + 0.2×0.70 = **0.931**
+- `correctness` = 1.0 (Claude confirms correct)
+- `efficiency` = 1.0 − (2/20) × 0.3 = **0.97** (used 2 of 20 tokens)
+- `budget_reasonableness` = 1 − |0.10 − 0.15| = **0.95** (easy ideal = 15%)
+- `redundancy` = **1.0** (no repetition in single word)
+- `self_assessment` = 1 − |20−2|/20 = **0.10** (budget was too generous)
+- `keyword_verification` = **1.0** ("paris" found in answer)
+- `format_quality` = **1.0** (clean, appropriate length for easy)
+- **Final reward** = 0.40×1.0 + 0.20×0.97 + 0.10×0.95 + 0.10×1.0 + 0.10×0.10 + 0.05×1.0 + 0.05×1.0 = **0.809**
 
 ---
 
