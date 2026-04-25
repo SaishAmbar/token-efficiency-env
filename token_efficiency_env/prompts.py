@@ -85,7 +85,12 @@ PROMPT_BANK = [
     {
         "prompt": "What is photosynthesis?",
         "complexity": "medium",
-        "expected_keywords": ["light", "plant", "energy"]
+        # NB: prefix-stem matching, so "plant" catches "plants",
+        # "sunlight" matches itself, "oxygen" appears in essentially every
+        # natural answer. Avoids the old "light"/"energy" trap where
+        # "sunlight" couldn't satisfy "light" (no word-start boundary)
+        # and "create their own food" answers never said "energy".
+        "expected_keywords": ["plant", "sunlight", "oxygen"]
     },
 
     # ──────────────────────────────────────────────────────────────

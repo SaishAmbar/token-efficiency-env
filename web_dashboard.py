@@ -257,6 +257,7 @@ def _step_to_dict(env: TokenEfficiencyEnvironment, obs) -> dict:
         "episode": obs.episode,
         "phase": obs.phase,
         "complexity": obs.complexity,
+        "prompt": obs.prompt,
         "error": obs.error or None,
     }
 
@@ -315,10 +316,8 @@ async def api_reset(question_index: Optional[int] = None):
 async def api_step(req: StepRequest):
     env = _get_interactive_env()
     if env.current_task is None:
-        return JSONResponse(
-            {"error": "Call /api/reset first", "reward": 0.0, "details": {}},
-            status_code=400,
-        )
+        # Friendly auto-reset so clicking Submit on a fresh page just works.
+        env.reset()
     obs = env.step(TokenEfficiencyAction(raw_response=req.raw_response))
     return _step_to_dict(env, obs)
 

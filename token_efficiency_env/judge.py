@@ -48,20 +48,39 @@ class Judge(Protocol):
     ) -> float: ...
 
 
-# ─── Shared keyword scoring (used by KeywordJudge and as HF fallback) ───
-def _keyword_score(answer: str, keywords: list[str]) -> float:
-    """Word-boundary keyword overlap, in [0.0, 1.0].
+# ─── Shared keyword scoring (used by KeywordJudge, HF fallback, and scorer.py) ───
+def matches_keyword(answer_lower: str, keyword: str) -> bool:
+    """Word-boundary keyword check with prefix-stem support.
 
-    Word-boundary matching avoids the ``"30" in "300"`` and
-    ``"central" in "centralized"`` false positives that plain ``in`` has.
+    Two policies, picked by keyword shape:
+      * Pure number (``"100"``, ``"256"``, ``"30"``) → strict full-word match,
+        so ``"100"`` does NOT spuriously match ``"1000"``.
+      * Anything else → prefix-stem match, so a stem like ``"plant"`` matches
+        ``plant`` / ``plants`` / ``planted`` / ``plantation`` (and similarly
+        ``antibod`` → ``antibody`` / ``antibodies``, ``purchas`` →
+        ``purchasing``, ``intelligen`` → ``intelligence`` / ``intelligent``).
+        This matches the way ``prompts.py`` was clearly authored.
+
+    Caller passes the lower-cased answer; this function does not lower-case
+    again on every call (the loop in the caller does it once).
+    """
+    kw = keyword.lower()
+    if kw.isdigit():
+        pattern = rf"\b{re.escape(kw)}\b"
+    else:
+        pattern = rf"\b{re.escape(kw)}\w*\b"
+    return bool(re.search(pattern, answer_lower))
+
+
+def _keyword_score(answer: str, keywords: list[str]) -> float:
+    """Fraction of expected keywords found in the answer, in [0.0, 1.0].
+
+    Returns 0.5 (neutral) when no keywords are supplied — no ground truth.
     """
     if not keywords:
-        return 0.5  # neutral when we have no ground truth to check against
+        return 0.5
     a = answer.lower()
-    matches = sum(
-        1 for kw in keywords
-        if re.search(rf"\b{re.escape(kw.lower())}\b", a)
-    )
+    matches = sum(1 for kw in keywords if matches_keyword(a, kw))
     return matches / len(keywords)
 
 
@@ -219,20 +238,34 @@ def get_judge() -> Judge:
     """Return the configured judge, constructing it on first call.
 
     Selection is driven by the ``JUDGE_BACKEND`` env var:
-      - ``huggingface`` (default): ``HFInferenceJudge``. If ``HF_TOKEN`` is
-        missing, transparently degrades to ``KeywordJudge`` so the env still
-        boots (useful for the HF Space first start before secrets are set).
-      - ``keyword``: ``KeywordJudge`` always.
+      - ``huggingface`` / ``hf`` (default): ``HFInferenceJudge``. If
+        ``HF_TOKEN`` is missing, transparently degrades to ``KeywordJudge``
+        so the env still boots (useful for the HF Space first start before
+        secrets are set).
+      - ``keyword`` / ``offline`` / ``local``: ``KeywordJudge`` always.
     """
     global _JUDGE
     if _JUDGE is not None:
         return _JUDGE
 
-    backend = os.environ.get("JUDGE_BACKEND", "huggingface").lower().strip()
+    raw = os.environ.get("JUDGE_BACKEND", "huggingface").lower().strip()
+    # Accept common aliases so a typo like JUDGE_BACKEND=hf or =offline does
+    # not silently break every /step call hours into an interactive session.
+    if raw in {"keyword", "offline", "local"}:
+        backend = "keyword"
+    elif raw in {"huggingface", "hf", "inference", "remote"}:
+        backend = "huggingface"
+    else:
+        raise ValueError(
+            f"Unknown JUDGE_BACKEND={raw!r}; expected one of "
+            f"'huggingface' / 'hf' / 'inference' / 'remote' or "
+            f"'keyword' / 'offline' / 'local'."
+        )
+
     if backend == "keyword":
         _JUDGE = KeywordJudge()
         logger.info("Judge backend: KeywordJudge (offline)")
-    elif backend == "huggingface":
+    else:  # huggingface
         try:
             _JUDGE = HFInferenceJudge()
             logger.info(
@@ -244,10 +277,6 @@ def get_judge() -> Judge:
                 "HF judge unavailable (%s); falling back to KeywordJudge.", exc
             )
             _JUDGE = KeywordJudge()
-    else:
-        raise ValueError(
-            f"Unknown JUDGE_BACKEND={backend!r}; expected 'huggingface' or 'keyword'."
-        )
     return _JUDGE
 
 

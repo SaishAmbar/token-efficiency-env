@@ -49,9 +49,9 @@ from collections import Counter
 # loaded as ``token_efficiency_env.scorer`` (installed package) and when
 # loaded as a top-level ``scorer`` module (uvicorn from /app/env).
 try:
-    from .judge import get_judge
+    from .judge import get_judge, matches_keyword
 except ImportError:  # pragma: no cover — exercised only at container start
-    from judge import get_judge  # type: ignore[no-redef]
+    from judge import get_judge, matches_keyword  # type: ignore[no-redef]
 
 
 # Maps complexity labels to the IDEAL token count for a good answer.
@@ -177,11 +177,13 @@ def score_answer(
     details["redundancy"] = round(redundancy_score, 4)
 
     # ─── 5. Keyword Verification (5%) ──────────────────────────────
+    # Uses the same prefix-stem matcher as the judge fallback so a stem
+    # like "antibod" in prompts.py reliably catches "antibodies" in the
+    # answer. See judge.matches_keyword for the matching policy.
     if expected_keywords:
         answer_lower = response.lower()
         matches = sum(
-            1 for kw in expected_keywords
-            if re.search(rf"\b{re.escape(kw.lower())}\b", answer_lower)
+            1 for kw in expected_keywords if matches_keyword(answer_lower, kw)
         )
         keyword_score = matches / len(expected_keywords)
     else:

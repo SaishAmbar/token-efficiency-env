@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import pytest
 
+from token_efficiency_env.judge import matches_keyword
 from token_efficiency_env.models import TokenEfficiencyAction
 from token_efficiency_env.server import token_efficiency_env_environment as ee
 from token_efficiency_env.server.token_efficiency_env_environment import (
@@ -163,4 +164,59 @@ def test_overshoot_heavily_penalises_self_assessment():
     assert obs.reward_components["self_assessment"] < 0.5, (
         "huge overshoot must heavily penalise self_assessment, "
         f"got {obs.reward_components}"
+    )
+
+
+# ─── Keyword matcher (regression for the prompts.py-author intent) ──────
+@pytest.mark.parametrize(
+    "answer,keyword,should_match",
+    [
+        # Pure-numeric keywords use STRICT word-boundary matching to avoid
+        # false positives like "100" → "1000" or "30" → "300".
+        ("the answer is 100", "100", True),
+        ("the answer is 1000", "100", False),
+        ("about 30 percent", "30", True),
+        ("about 300 percent", "30", False),
+        # Word stems use PREFIX matching, so prompts.py author conventions
+        # like "antibod" → "antibodies", "purchas" → "purchasing",
+        # "intelligen" → "intelligence" all do the right thing.
+        ("vaccines produce antibodies", "antibod", True),
+        ("rising prices reduce purchasing power", "purchas", True),
+        ("artificial intelligence is...", "intelligen", True),
+        ("plants need water", "plant", True),
+        ("plant biology", "plant", True),
+        # But prefix is at WORD START — so "light" should NOT secretly catch
+        # "sunlight" (this is why the photosynthesis prompt now uses
+        # "sunlight" directly as a keyword instead of "light").
+        ("powered by sunlight", "light", False),
+        ("the sunlight reflects", "sunlight", True),
+        # Whole-word case: matches the keyword exactly.
+        ("the immune system", "immune", True),
+        ("written by Shakespeare", "shakespeare", True),
+    ],
+)
+def test_matches_keyword_prefix_and_numeric_policies(answer, keyword, should_match):
+    assert matches_keyword(answer.lower(), keyword) is should_match
+
+
+def test_photosynthesis_keywords_match_a_natural_answer():
+    """The exact answer the user typed in the dashboard. Regression for
+    the keyword bug that scored 0/3 because 'light' wouldn't match
+    'sunlight' and 'energy' wasn't in the answer at all."""
+    photo_idx = next(
+        i for i, p in enumerate(ee.PROMPT_BANK) if p["prompt"] == "What is photosynthesis?"
+    )
+    env = _fresh_env(photo_idx)
+    answer = (
+        "Photosynthesis is the process by which green plants, algae, and "
+        "some bacteria use sunlight, water, and carbon dioxide to create "
+        "their own food (sugar) and release oxygen."
+    )
+    obs = env.step(TokenEfficiencyAction(
+        raw_response=f"<budget>40</budget><answer>{answer}</answer>"
+    ))
+    assert obs.error == ""
+    assert obs.reward_components["keyword_verification"] >= 0.99, (
+        f"keyword score should be ~1.0 for this answer, got "
+        f"{obs.reward_components['keyword_verification']}"
     )
