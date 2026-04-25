@@ -66,7 +66,8 @@ The two `README.md` files are deliberately *not* in this list — they're slated
 │  ┌──────────────────────────────────────────────────────────────────┐    │
 │  │ TokenEfficiencyEnvironment.step(action)                          │    │
 │  │   ① Parse  <budget>N</budget><answer>X</answer>   (regex)        │    │
-│  │   ② Anti-hacking cliffs (bad_format, empty, parrot, overshoot)   │    │
+│  │   ② Anti-hacking cliffs (bad_format, empty, parrot, repetition,  │    │
+│  │     too_long)                                                    │    │
 │  │       └─ if hit, return immediately with negative reward          │    │
 │  │   ③ Count tokens with the Qwen tokenizer                         │    │
 │  │   ④ Call scorer.score_answer(...)                                │    │
@@ -147,7 +148,8 @@ These short-circuit the 6-component formula. Defined in `token_efficiency_env_en
 | Missing/malformed `<budget>` or `<answer>` tag | `bad_format` | `-1.0` | Forces format compliance from step 1. |
 | `len(answer) < 2` chars (e.g. `.`, `a`, ` `) | `empty` | `-1.0` | Closes the "score 1.0 by saying almost nothing" loophole. |
 | Normalised question is a substring of the answer | `parrot` | `-0.5` | Closes the "repeat the question = high keyword overlap" loophole. |
-| `tokens_used > episode_token_limit` (default 200) | `overshoot` | `max(reward, -0.5)` | Hard ceiling on response length. |
+| A single word covers >60% of the answer | `repetition` | `-0.5` | Stops degenerate "the the the …" outputs. |
+| `tokens_used > 500` (`MAX_ANSWER_TOKENS`) | `too_long` | `-0.5` | Hard ceiling on response length (the advertised `episode_token_limit=200` is the *soft* target — the inefficiency is paid through the `efficiency` component before this cliff trips). |
 
 When a cliff fires, `reward_components` is returned as `{}` and `done=True`.
 
@@ -326,7 +328,7 @@ python _phase4_e2e.py
 
 - **Episode**: one `reset` → `step` cycle = one question/answer pair.
 - **Budget (`N`)**: the model's *self-predicted* upper bound on its own token usage. Not a constraint imposed by the env, just a prediction the env scores.
-- **Episode token limit**: the *hard* cap (default 200 tokens). Going past this triggers the `overshoot` cliff regardless of budget.
+- **Episode token limit**: a *soft* target (default 200 tokens) advertised to the trainer. Going over costs reward through the `efficiency` component but does *not* terminate the episode. The actual hard cliff is `MAX_ANSWER_TOKENS=500` → `too_long`.
 - **Cliff**: a short-circuit reward path that bypasses the 6-component formula. Used to make reward-hacking unprofitable.
 - **Curriculum phase**: which difficulty mix the env is currently sampling from. Server-side state, advances on rolling-50 average reward.
 - **Trainee**: the LLM whose weights are being updated (Qwen2.5-3B-Instruct).

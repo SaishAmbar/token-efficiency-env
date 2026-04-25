@@ -18,8 +18,9 @@ Observation:
     phase:                Curriculum phase name.
     episode:              Episode index.
     avg_reward_50:        Rolling average reward over the last 50 episodes.
-    reward_components:    Per-component score breakdown from the 7-component scorer.
-    error:                Non-empty when an anti-hacking guard tripped (e.g. "bad_format").
+    reward_components:    Per-component score breakdown from the 6-component scorer.
+    error:                Non-empty short tag when an anti-hacking guard tripped:
+                          "bad_format", "empty", "parrot", "repetition", "too_long".
 """
 
 from typing import Dict
@@ -92,12 +93,12 @@ class TokenEfficiencyObservation(Observation):
     )
     reward_components: Dict[str, float] = Field(
         default_factory=dict,
-        description="Per-component scores from the 7-component scorer.",
+        description="Per-component scores from the 6-component scorer.",
     )
     error: str = Field(
         default="",
         description=(
             "Non-empty short tag when an anti-hacking guard tripped: "
-            '"bad_format", "empty", "repetition", or "too_long".'
+            '"bad_format", "empty", "parrot", "repetition", or "too_long".'
         ),
     )

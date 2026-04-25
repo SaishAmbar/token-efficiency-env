@@ -1,7 +1,7 @@
 """
 TokenEfficiencyEnvironment — OpenEnv-compatible HTTP environment.
 
-Wraps the real environment logic (curriculum, anti-hacking, 7-component
+Wraps the real environment logic (curriculum, anti-hacking, 6-component
 scoring) and exposes it via the ``openenv.core.env_server`` interface so the
 HTTP/WebSocket server in ``server/app.py`` can host it.
 
@@ -126,7 +126,7 @@ class TokenEfficiencyEnvironment(Environment):
     The agent receives a question via ``reset()``. It must respond with
     ``<budget>N</budget><answer>text</answer>``. ``step()`` parses the
     response, runs anti-hacking guards, and scores the answer with the
-    7-component scorer.
+    6-component scorer.
 
     State (per session):
         - episode_count, current_phase, recent_rewards (rolling, maxlen=50)
@@ -332,7 +332,7 @@ class TokenEfficiencyEnvironment(Environment):
                 tokens_used=tokens_used,
             )
 
-        # ─── Score (7 components) ─────────────────────────────────
+        # ─── Score (6 components) ─────────────────────────────────
         score_result = score_answer(
             prompt=self.current_task["prompt"],
             response=answer,

@@ -10,20 +10,37 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openenv-token_efficiency_env"
-version = "0.1.0"
-description = "Token Efficiency Env environment for OpenEnv"
+version = "0.2.0"
+description = "OpenEnv RL environment that trains LLMs to answer correctly using fewer tokens, by self-allocating a per-question token budget."
+readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+keywords = ["openenv", "rl", "reinforcement-learning", "llm", "grpo", "token-efficiency", "huggingface"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
-    # Core OpenEnv runtime (provides FastAPI server + HTTP client types)
+    # Core OpenEnv runtime (provides FastAPI server + HTTP/WebSocket client types).
     "openenv-core[core]>=0.2.2",
-    # Tokenizer for counting answer tokens (Qwen2.5-3B-Instruct)
+    # Tokenizer for counting answer tokens (Qwen/Qwen2.5-3B-Instruct is the
+    # trainee whose tokens we count).
     "transformers>=4.44.0",
     "tokenizers>=0.20.0",
-    # LLM judge for the correctness component of the reward.
+    # LLM judge for the *correctness* component of the reward.
     # Uses huggingface_hub.InferenceClient against the Inference Providers
-    # router. Default model: meta-llama/Llama-3.2-3B-Instruct.
+    # router. Default judge model: meta-llama/Llama-3.1-8B-Instruct (override
+    # via JUDGE_MODEL). Falls back to KeywordJudge if HF_TOKEN is missing.
     "huggingface_hub>=0.26.0",
-    # Pydantic for action/observation models. Already a transitive dep of
+    # Pydantic for action/observation schemas. Already a transitive dep of
     # openenv-core, declared explicitly here for clarity.
     "pydantic>=2.7.0",
 ]
@@ -32,7 +49,12 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
+    "httpx>=0.27.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/SaishAmbar/token-efficiency-env"
+Issues = "https://github.com/SaishAmbar/token-efficiency-env/issues"
 
 [project.scripts]
 # Server entry point - enables running via: uv run --project . server
@@ -43,3 +65,7 @@ server = "token_efficiency_env.server.app:main"
 include-package-data = true
 packages = ["token_efficiency_env", "token_efficiency_env.server"]
 package-dir = { "token_efficiency_env" = ".", "token_efficiency_env.server" = "server" }
+
+# Note: pytest config lives in `pytest.ini` at the repo root so `pytest` works
+# from there (where the `tests/` directory lives). Don't add it here; pytest
+# uses whichever config it finds first walking up from CWD.

@@ -6,7 +6,7 @@ environment variable:
 
   - ``huggingface`` (default) — uses ``huggingface_hub.InferenceClient`` against
     the Inference Providers router. Requires ``HF_TOKEN``. Override the model
-    with ``JUDGE_MODEL`` (default: ``meta-llama/Llama-3.2-3B-Instruct``).
+    with ``JUDGE_MODEL`` (default: ``meta-llama/Llama-3.1-8B-Instruct``).
 
   - ``keyword`` — pure-Python fallback that scores via word-boundary keyword
     matching against ``expected_keywords`` from ``prompts.py``. No network,

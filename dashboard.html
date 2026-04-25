@@ -185,10 +185,9 @@ async function submitAnswer(){
   }
   const det=d.details;
   const comps=[
-    ['Correctness (40%)','correctness'],['Efficiency (20%)','efficiency'],
-    ['Budget Reas. (10%)','budget_reasonableness'],['Redundancy (10%)','redundancy'],
-    ['Self-Assess (10%)','self_assessment'],['Keyword (5%)','keyword_verification'],
-    ['Format (5%)','format_quality']
+    ['Correctness (55%)','correctness'],['Efficiency (15%)','efficiency'],
+    ['Self-Assess (15%)','self_assessment'],['Redundancy (5%)','redundancy'],
+    ['Keyword (5%)','keyword_verification'],['Format (5%)','format_quality']
   ];
   let html=`<div class="reward-big">${d.reward.toFixed(4)}</div><div class="reward-label">Final Weighted Reward</div>`;
   html+=`<div class="info-row" style="justify-content:center;margin:12px 0"><span class="info-chip">Budget: ${d.budget}</span><span class="info-chip">Tokens: ${d.tokens_used}</span><span class="info-chip">Avg: ${d.avg_reward}</span></div>`;

@@ -6,7 +6,7 @@ description: >
   '<budget>N</budget><answer>text</answer>' and is scored on a 6-component
   reward (correctness, efficiency, self-assessment, redundancy,
   keyword verification, format quality), with anti-hacking cliffs for
-  bad_format / empty / parrot / overshoot. See ARCHITECTURE.md for details.
+  bad_format / empty / parrot / repetition / too_long. See ARCHITECTURE.md for details.
 
 # Environment class served by the OpenEnv HTTP/WebSocket app
 entry_point: token_efficiency_env.server.token_efficiency_env_environment:TokenEfficiencyEnvironment

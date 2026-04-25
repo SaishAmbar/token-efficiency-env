@@ -1,186 +1,218 @@
-# 🎯 TokenEfficiencyEnv
+# TokenEfficiencyEnv
 
-> An OpenEnv RL environment that trains LLMs to answer correctly using **fewer tokens**, by dynamically allocating a token budget based on task complexity.
+> An [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible RL environment that trains LLMs to answer questions correctly using **fewer tokens**, by forcing the model to first *predict* its own token budget and then live within it.
 
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-blue)](https://github.com/meta-pytorch/OpenEnv)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green)](https://python.org)
-[![License: BSD](https://img.shields.io/badge/License-BSD-yellow)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
+[![License: BSD-3](https://img.shields.io/badge/License-BSD--3--Clause-yellow)](LICENSE)
+
+> **Read [`ARCHITECTURE.md`](ARCHITECTURE.md) first** for the full design (data flow, reward maths, anti-hacking cliffs, statefulness gotcha, file map). This README is the friendly executive summary.
 
 ---
 
-## 🧠 What Does This Do?
+## What it does
 
-Standard LLMs generate verbose answers even when a short answer would suffice. This project creates an **RL training environment** where the model learns to:
+Standard LLMs over-explain — a one-word answer often comes wrapped in three sentences of throat-clearing. This environment makes the model **predict its own answer length** before answering, and rewards it for being both **correct AND tight**.
 
-1. **Self-allocate** a token budget (`<budget>N</budget>`)
-2. **Answer concisely** within that budget (`<answer>text</answer>`)
-3. **Balance accuracy vs efficiency** — scored on 7 independent dimensions
-
-Over thousands of training steps, the model becomes both **accurate AND concise**.
-
----
-
-## 🏗️ Architecture
+Each episode the model receives a question and must reply in *exactly* this format:
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                        Training Loop                           │
-│                                                                │
-│  1. env.reset()  →  picks a question (curriculum-aware)       │
-│                      returns: { prompt, episode_token_limit }  │
-│                                                                │
-│  2. Model generates response:                                  │
-│       <budget>60</budget><answer>Paris.</answer>               │
-│                                                                │
-│  3. env.step(action)  →  parses budget + answer               │
-│                           runs 7-component scorer              │
-│                           applies anti-hacking checks          │
-│                           returns reward (float)               │
-│                                                                │
-│  4. RL trainer (TRL/GRPO) updates model weights               │
-│                                                                │
-│  Repeat → model improves at being concise AND correct          │
-└────────────────────────────────────────────────────────────────┘
+<budget>N</budget><answer>your answer here</answer>
+```
+
+- `N` = the model's self-predicted upper bound on tokens it will use
+- The answer must actually live within that budget
+- The reward is computed by a 6-component scorer (see below)
+
+A separate trainer (e.g. TRL's `GRPOTrainer`) collects rewards across thousands of episodes and updates the model's weights to make it both more accurate and more concise.
+
+---
+
+## Architecture at a glance
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                         ONE TRAINING EPISODE                       │
+│                                                                    │
+│  env.reset()  ──►  picks a question (curriculum-weighted)         │
+│                    returns: { prompt, episode_token_limit, ... }   │
+│                                                                    │
+│  LLM generates:  "<budget>5</budget><answer>Paris</answer>"        │
+│                                                                    │
+│  env.step(action)  ──►  parse tags                                 │
+│                          anti-hacking cliffs                       │
+│                          count tokens (Qwen tokenizer)             │
+│                          score correctness (Llama judge via HF)    │
+│                          combine 6 reward components               │
+│                          returns: observation + reward             │
+│                                                                    │
+│  Trainer (GRPO) uses reward to update LLM weights                  │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+Two LLMs in the loop (don't confuse them):
+
+| Model | Role | Trained? |
+|---|---|---|
+| `Qwen/Qwen2.5-3B-Instruct` | The **trainee** | Yes — its weights change |
+| `meta-llama/Llama-3.1-8B-Instruct` | The **judge** for correctness | No — frozen, runs on HF Inference Providers |
+
+---
+
+## The 6-component reward
+
+| # | Component | Weight | What it measures |
+|---|---|---:|---|
+| 1 | **correctness** | 0.55 | LLM judge in `{0.0, 0.3, 0.7, 1.0}`. Falls back to keyword overlap on judge errors. |
+| 2 | **efficiency** | 0.15 | `tokens_used` vs an *absolute* per-complexity ideal (easy=15, medium=60, hard=130). Caps at 1.0; declines past the ideal. |
+| 3 | **self_assessment** | 0.15 | Asymmetric — mild penalty for slack, steep penalty for overshoot. Trains *honest upper-bound* prediction. |
+| 4 | **redundancy** | 0.05 | `1 - repeated_word_ratio`. Catches "Paris Paris Paris…". |
+| 5 | **keyword_verification** | 0.05 | Pure-Python keyword overlap. A sanity floor against judge hallucinations. |
+| 6 | **format_quality** | 0.05 | Both tags present, budget is a positive int, well-ordered. |
+
+**Anti-hacking cliffs** (override the formula entirely):
+
+| Trigger | `error` tag | `reward` |
+|---|---|---:|
+| Missing/malformed `<budget>` or `<answer>` | `bad_format` | `-1.0` |
+| Answer < 2 chars (e.g. `.`, `a`) | `empty` | `-1.0` |
+| Answer is the question parroted back | `parrot` | `-0.5` |
+| Single word covers >60% of the answer | `repetition` | `-0.5` |
+| `tokens_used > 500` (the `MAX_ANSWER_TOKENS` ceiling) | `too_long` | `-0.5` |
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) §5–6 for the *why* behind each design choice.
+
+---
+
+## Curriculum
+
+The env tracks the trainee's average reward over the last 50 episodes. Once the average crosses a threshold, the difficulty mix shifts:
+
+| Phase | easy | medium | hard | promotes when |
+|---|---:|---:|---:|---|
+| 1 | 100% | 0% | 0% | `avg_reward_50 ≥ 0.40` |
+| 2 | 60% | 40% | 0% | `≥ 0.50` |
+| 3 | 30% | 40% | 30% | `≥ 0.60` |
+| 4 | 20% | 40% | 40% | terminal |
+
+---
+
+## Quick Start
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/SaishAmbar/token-efficiency-env.git
+cd token-efficiency-env
+pip install -e ./token_efficiency_env
+```
+
+### 2. Get a HuggingFace token
+
+Create one at <https://huggingface.co/settings/tokens> with **"Make calls to Inference Providers"** permission. Then:
+
+```powershell
+# PowerShell
+$env:HF_TOKEN = 'hf_yourtokenhere'
+$env:JUDGE_BACKEND = 'huggingface'
+```
+
+```bash
+# bash / zsh
+export HF_TOKEN=hf_yourtokenhere
+export JUDGE_BACKEND=huggingface
+```
+
+> No HF token? Set `JUDGE_BACKEND=keyword` instead. The env will use offline keyword-overlap scoring — fine for development, weaker training signal.
+
+### 3. Start the env server
+
+```bash
+ENABLE_WEB_INTERFACE=true \
+  python -m uvicorn token_efficiency_env.server.app:app --host 127.0.0.1 --port 8000
+```
+
+| URL | What it is |
+|---|---|
+| <http://localhost:8000/web/> | Browser playground (Reset → type response → Step) |
+| <http://localhost:8000/docs> | FastAPI Swagger UI |
+| <http://localhost:8000/health> | Liveness probe |
+
+### 4. Drive it from Python (the way a trainer does)
+
+```python
+from token_efficiency_env.client import TokenEfficiencyEnv
+from token_efficiency_env.models import TokenEfficiencyAction
+
+with TokenEfficiencyEnv(base_url="http://localhost:8000") as env:
+    obs = env.reset()
+    print("Q:", obs.prompt)
+
+    result = env.step(TokenEfficiencyAction(
+        raw_response="<budget>5</budget><answer>Paris</answer>"
+    ))
+    print("Reward:", result.reward)
+    print("Components:", result.observation.reward_components)
+```
+
+> **Always use `TokenEfficiencyEnv` (WebSocket), not raw HTTP.** The HTTP endpoints are stateless and curriculum/episode state lives in WebSocket sessions. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §9.
+
+---
+
+## Tests
+
+```bash
+pytest tests/                  # fast unit suite, no server / token needed
+# Integration tests in tests/test_e2e_websocket.py auto-skip if no server is up.
 ```
 
 ---
 
-## 📊 7-Component Scoring Formula
-
-| # | Component | Weight | What It Measures |
-|---|-----------|--------|-----------------|
-| 1 | **Correctness** | 40% | LLM judge (Claude Haiku) rates answer 0.0–1.0 |
-| 2 | **Efficiency** | 20% | Tokens used vs self-allocated budget |
-| 3 | **Budget Reasonableness** | 10% | Budget matches question complexity |
-| 4 | **Redundancy Penalty** | 10% | Unique word ratio — penalises repetition |
-| 5 | **Self-Assessment** | 10% | How accurately budget predicts actual usage |
-| 6 | **Keyword Verification** | 5% | Pattern match for known answer fragments |
-| 7 | **Format Quality** | 5% | Clean, well-structured response |
-
-```
-reward = 0.40×correctness + 0.20×efficiency + 0.10×budget_reasonableness
-       + 0.10×redundancy + 0.10×self_assessment
-       + 0.05×keyword_verification + 0.05×format_quality
-```
-
----
-
-## 📈 Curriculum Learning
-
-The environment **adapts difficulty** based on model performance:
-
-| Phase | Questions | Advance When |
-|-------|-----------|-------------|
-| Phase 1 | 100% Easy | avg reward > 0.4 |
-| Phase 2 | 60% Easy + 40% Medium | avg reward > 0.5 |
-| Phase 3 | 30% Easy + 40% Medium + 30% Hard | avg reward > 0.6 |
-| Phase 4 | 20% Easy + 40% Medium + 40% Hard | Final phase |
-
----
-
-## 🛡️ Anti-Reward-Hacking Protections
-
-- **Budget clamping**: Forces budget to [1, 200] range
-- **Empty answer detection**: Penalty for blank responses
-- **Repetition guard**: Catches "Paris Paris Paris Paris" style exploits
-- **Answer length sanity**: Hard cap at 500 tokens
-- **Step timeout**: 30-second max per step
-- **7 independent reward functions**: Much harder to game than a single signal
-
----
-
-## 📁 Project Structure
+## Project layout
 
 ```
 token-efficiency-env/
-├── README.md                         ← this file
-└── token_efficiency_env/             ← main project folder
-    ├── env_server.py                 ← THE ENVIRONMENT (core logic + curriculum)
-    ├── env_client.py                 ← client to connect to HF Space
-    ├── prompts.py                    ← 24 questions with keywords
-    ├── scorer.py                     ← 7-component reward function
-    ├── openenv.yaml                  ← OpenEnv framework config
-    ├── __init__.py                   ← package init
-    ├── client.py                     ← OpenEnv client boilerplate
-    ├── models.py                     ← OpenEnv models boilerplate
-    ├── pyproject.toml                ← Python package metadata
-    └── server/                       ← FastAPI server
+├── ARCHITECTURE.md         ← read this first (canonical design)
+├── README.md               ← you are here
+├── CHANGELOG.md            ← release history + design rationale
+├── pytest.ini              ← test discovery config
+├── web_dashboard.py        ← optional pretty UI (delegates to the real env)
+├── dashboard.html
+├── tests/
+│   ├── test_reward_invariants.py
+│   └── test_e2e_websocket.py
+└── token_efficiency_env/
+    ├── README.md           ← in-package contributor guide
+    ├── pyproject.toml
+    ├── openenv.yaml
+    ├── prompts.py          ← 24 hand-curated questions
+    ├── scorer.py           ← 6-component reward
+    ├── judge.py            ← HuggingFace + keyword judges
+    ├── models.py           ← Pydantic schemas
+    ├── client.py           ← WebSocket client (use this)
+    └── server/
         ├── app.py
-        ├── Dockerfile
+        ├── token_efficiency_env_environment.py   ← THE ENVIRONMENT
+        ├── Dockerfile      ← used by HF Spaces deploy (Phase 5, deferred)
         └── requirements.txt
 ```
 
 ---
 
-## 🚀 Quick Start
+## Roadmap
 
-### 1. Clone
-```bash
-git clone https://github.com/SaishAmbar/token-efficiency-env.git
-cd token-efficiency-env
-```
+- ✅ Phase 1 — OpenEnv-shaped environment + schemas
+- ✅ Phase 2 — HuggingFace Inference judge + keyword fallback
+- ✅ Phase 3 — Reward redesign (6 components, asymmetric self-assessment, absolute efficiency) + new anti-hacking cliffs
+- ✅ Phase 4 — Local end-to-end verification
+- ✅ Phase 6 — Docs & tests cleanup *(this release)*
+- ⏳ Phase 7 — Training notebook scaffold (TRL `GRPOTrainer` + Qwen2.5-3B + N parallel env servers)
+- ⏳ Phase 5 — Deploy as a HuggingFace Space (deferred to last)
 
-### 2. Clone OpenEnv (dependency)
-```bash
-cd ..
-git clone https://github.com/meta-pytorch/OpenEnv.git
-cd token-efficiency-env
-```
-
-### 3. Install dependencies
-```bash
-pip install openenv-core trl transformers anthropic pydantic
-```
-
-### 4. Set API key
-```powershell
-# Windows PowerShell
-$env:ANTHROPIC_API_KEY = "sk-ant-your-key-here"
-```
-```bash
-# Mac/Linux
-export ANTHROPIC_API_KEY="sk-ant-your-key-here"
-```
-
-### 5. Test locally
-```python
-import sys
-sys.path.insert(0, '.')
-sys.path.insert(0, '../OpenEnv/src')
-
-from env_server import TokenEfficiencyEnv, TokenEfficiencyAction
-
-env = TokenEfficiencyEnv()
-obs = env.reset()
-print("Prompt:", obs.prompt)
-
-result = env.step(TokenEfficiencyAction(
-    raw_response="<budget>20</budget><answer>Paris.</answer>"
-))
-print("Reward:", result["reward"])
-print("Components:", result["info"]["reward_components"])
-```
+See [`CHANGELOG.md`](CHANGELOG.md) for what landed in each phase.
 
 ---
 
-## 👥 Team Structure
+## License
 
-| Person | Responsibility | Files |
-|--------|---------------|-------|
-| P1 | Environment | `env_server.py`, `env_client.py` |
-| P2 | Rewards & Prompts | `scorer.py`, `prompts.py` |
-| P3 | Training (Colab) | TRL + Unsloth + GRPO |
-
----
-
-## 🛠️ Tech Stack
-
-- **OpenEnv** — environment interface
-- **TRL** — RL training (GRPO)
-- **Unsloth** — efficient training & inference
-- **Qwen2.5-3B-Instruct** — base model
-- **Claude Haiku** — LLM judge for correctness
-
----
-
-*Last updated: April 2026*
+BSD-3-Clause. See [`LICENSE`](LICENSE).
