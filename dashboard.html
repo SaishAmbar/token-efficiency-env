@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TokenEfficiencyEnv Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#0a0a1a;color:#e0e0e0;min-height:100vh}
+.header{background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);padding:20px 30px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:16px}
+.header h1{font-size:22px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header .badge{font-size:11px;background:rgba(0,210,255,.15);color:#00d2ff;padding:4px 10px;border-radius:20px;border:1px solid rgba(0,210,255,.3)}
+.tabs{display:flex;gap:4px;padding:12px 30px;background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.06)}
+.tab{padding:8px 20px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:#888;transition:.2s}
+.tab:hover{color:#ccc;background:rgba(255,255,255,.05)}
+.tab.active{color:#00d2ff;background:rgba(0,210,255,.1);border:1px solid rgba(0,210,255,.2)}
+.content{max-width:1100px;margin:0 auto;padding:24px}
+.panel{display:none}.panel.active{display:block}
+.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:22px;margin-bottom:18px;backdrop-filter:blur(10px)}
+.card h3{font-size:14px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
+.question-box{font-size:18px;font-weight:600;color:#fff;padding:16px;background:rgba(123,47,247,.1);border:1px solid rgba(123,47,247,.25);border-radius:10px;margin-bottom:14px}
+.complexity-badge{display:inline-block;font-size:11px;padding:3px 10px;border-radius:12px;font-weight:700;margin-left:10px}
+.complexity-badge.easy{background:rgba(0,200,83,.15);color:#00c853}
+.complexity-badge.medium{background:rgba(255,171,0,.15);color:#ffab00}
+.complexity-badge.hard{background:rgba(255,61,87,.15);color:#ff3d57}
+textarea{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:14px;color:#fff;font-family:'Inter',monospace;font-size:14px;resize:vertical;min-height:80px}
+textarea:focus{outline:none;border-color:#7b2ff7}
+.btn{padding:10px 24px;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;transition:.2s}
+.btn-primary{background:linear-gradient(135deg,#7b2ff7,#00d2ff);color:#fff}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(123,47,247,.4)}
+.btn-secondary{background:rgba(255,255,255,.08);color:#ccc;border:1px solid rgba(255,255,255,.12)}
+.btn-secondary:hover{background:rgba(255,255,255,.12)}
+.btn-row{display:flex;gap:10px;margin:14px 0}
+.score-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.score-item{display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.03);border-radius:8px}
+.score-item .label{font-size:12px;color:#999;width:130px;flex-shrink:0}
+.score-item .bar-bg{flex:1;height:8px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden}
+.score-item .bar-fill{height:100%;border-radius:4px;transition:width .6s ease}
+.score-item .val{font-size:13px;font-weight:700;width:40px;text-align:right}
+.reward-big{text-align:center;padding:20px;font-size:48px;font-weight:800;background:linear-gradient(135deg,#7b2ff7,#00d2ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.reward-label{text-align:center;font-size:12px;color:#888;margin-top:4px}
+.error-box{background:rgba(255,61,87,.1);border:1px solid rgba(255,61,87,.3);color:#ff6b7a;padding:14px;border-radius:10px;font-size:14px}
+.info-row{display:flex;gap:20px;flex-wrap:wrap;margin-top:10px}
+.info-chip{font-size:12px;color:#aaa;background:rgba(255,255,255,.05);padding:4px 12px;border-radius:6px}
+.chart-container{position:relative;height:280px;background:rgba(255,255,255,.02);border-radius:10px;border:1px solid rgba(255,255,255,.06);overflow:hidden}
+canvas{width:100%!important;height:100%!important}
+.sim-controls{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.sim-controls input{width:80px;padding:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:6px;color:#fff;font-size:14px;text-align:center}
+.sim-controls label{font-size:13px;color:#aaa}
+.phase-indicator{display:flex;gap:6px;margin:10px 0}
+.phase-dot{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.08)}
+.phase-dot.active{background:linear-gradient(90deg,#7b2ff7,#00d2ff)}
+.phase-dot.done{background:#00c853}
+.log-feed{max-height:250px;overflow-y:auto;font-size:12px;font-family:monospace;background:rgba(0,0,0,.3);border-radius:8px;padding:12px}
+.log-feed::-webkit-scrollbar{width:6px}
+.log-feed::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+.log-line{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+.log-line .ep{color:#7b2ff7}.log-line .rw{font-weight:700}
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.stat-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:16px;text-align:center}
+.stat-card .num{font-size:28px;font-weight:800;background:linear-gradient(135deg,#00d2ff,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stat-card .lbl{font-size:11px;color:#888;margin-top:4px}
+.hint{font-size:12px;color:#666;margin-top:6px;font-style:italic}
+.format-helper{font-size:12px;color:#7b2ff7;cursor:pointer;margin-top:6px}
+.format-helper:hover{text-decoration:underline}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .4s ease}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🎯 TokenEfficiencyEnv</h1>
+  <span class="badge">LIVE ENVIRONMENT</span>
+  <span class="badge" id="phaseLabel">Phase 1: Easy Only</span>
+</div>
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('interactive')">🎮 Interactive Mode</div>
+  <div class="tab" onclick="switchTab('training')">🧠 Training Simulation</div>
+</div>
+
+<!-- INTERACTIVE -->
+<div class="content">
+<div class="panel active" id="panel-interactive">
+  <div class="stats-row" id="interStats">
+    <div class="stat-card"><div class="num" id="sEpisode">0</div><div class="lbl">Episode</div></div>
+    <div class="stat-card"><div class="num" id="sPhase">1</div><div class="lbl">Phase</div></div>
+    <div class="stat-card"><div class="num" id="sAvg">—</div><div class="lbl">Avg Reward</div></div>
+    <div class="stat-card"><div class="num" id="sLast">—</div><div class="lbl">Last Reward</div></div>
+  </div>
+  <div class="card">
+    <h3>Current Question</h3>
+    <div class="question-box" id="questionBox">Click "New Question" to start</div>
+    <div class="info-row" id="kwRow"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="newQuestion()">🔄 New Question</button>
+      <select id="qSelect" class="btn btn-secondary" style="padding:8px 12px;font-size:13px;background:#1a1a2e;color:#ccc;border-radius:8px;border:1px solid rgba(255,255,255,.12)">
+        <option value="-1">Random (curriculum)</option>
+      </select>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Your Response (play as the LLM)</h3>
+    <textarea id="answerInput" placeholder="Type: <budget>20</budget><answer>Paris.</answer>"></textarea>
+    <div class="format-helper" onclick="insertTemplate()">💡 Click to insert format template</div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="submitAnswer()">⚡ Submit & Score</button>
+    </div>
+  </div>
+  <div class="card" id="resultCard" style="display:none">
+    <h3>Scoring Result</h3>
+    <div id="resultContent"></div>
+  </div>
+</div>
+
+<!-- TRAINING SIM -->
+<div class="panel" id="panel-training">
+  <div class="card">
+    <h3>Training Simulation</h3>
+    <p style="color:#aaa;font-size:13px;margin-bottom:14px">Watch a simulated LLM train against your environment. It starts bad (no format, verbose) and gradually learns to be concise and correct.</p>
+    <div class="sim-controls">
+      <label>Episodes:</label>
+      <input type="number" id="simEpisodes" value="60" min="10" max="200">
+      <button class="btn btn-primary" id="simBtn" onclick="runSimulation()">🚀 Start Training</button>
+    </div>
+    <div class="phase-indicator" id="phaseBar">
+      <div class="phase-dot active" title="Phase 1"></div>
+      <div class="phase-dot" title="Phase 2"></div>
+      <div class="phase-dot" title="Phase 3"></div>
+      <div class="phase-dot" title="Phase 4"></div>
+    </div>
+  </div>
+  <div class="card"><h3>Reward Over Episodes</h3><div class="chart-container"><canvas id="rewardChart"></canvas></div></div>
+  <div class="card"><h3>Training Log</h3><div class="log-feed" id="logFeed"><div style="color:#666">Click Start Training to begin...</div></div></div>
+</div>
+</div>
+
+<script>
+const API = '';
+let questions = [];
+
+// Load questions
+fetch(API+'/api/questions').then(r=>r.json()).then(qs=>{
+  questions=qs;
+  const sel=document.getElementById('qSelect');
+  qs.forEach((q,i)=>{sel.innerHTML+=`<option value="${i}">[${q.complexity}] ${q.prompt.slice(0,40)}...</option>`});
+});
+
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['interactive','training'][i]===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+}
+
+async function newQuestion(){
+  const idx=parseInt(document.getElementById('qSelect').value);
+  const url=idx>=0?API+'/api/reset?question_index='+idx:API+'/api/reset';
+  const r=await fetch(url,{method:'POST'});
+  const d=await r.json();
+  document.getElementById('questionBox').innerHTML=d.prompt+`<span class="complexity-badge ${d.complexity}">${d.complexity}</span>`;
+  document.getElementById('kwRow').innerHTML=d.keywords.map(k=>`<span class="info-chip">🔑 ${k}</span>`).join('');
+  document.getElementById('sEpisode').textContent=d.episode;
+  document.getElementById('phaseLabel').textContent=d.phase;
+  document.getElementById('resultCard').style.display='none';
+  document.getElementById('answerInput').value='';
+}
+
+function insertTemplate(){
+  document.getElementById('answerInput').value='<budget>30</budget><answer>Your answer here</answer>';
+  document.getElementById('answerInput').focus();
+}
+
+async function submitAnswer(){
+  const raw=document.getElementById('answerInput').value.trim();
+  if(!raw)return;
+  const r=await fetch(API+'/api/step',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_response:raw})});
+  const d=await r.json();
+  const rc=document.getElementById('resultCard');
+  rc.style.display='block';
+  rc.classList.remove('fade-in');void rc.offsetWidth;rc.classList.add('fade-in');
+  if(d.error){
+    document.getElementById('resultContent').innerHTML=`<div class="error-box">❌ ${d.error}</div><div class="reward-big" style="color:#ff3d57;-webkit-text-fill-color:#ff3d57">${d.reward}</div><div class="reward-label">Reward (penalty)</div>`;
+    document.getElementById('sLast').textContent=d.reward;
+    return;
+  }
+  const det=d.details;
+  const comps=[
+    ['Correctness (40%)','correctness'],['Efficiency (20%)','efficiency'],
+    ['Budget Reas. (10%)','budget_reasonableness'],['Redundancy (10%)','redundancy'],
+    ['Self-Assess (10%)','self_assessment'],['Keyword (5%)','keyword_verification'],
+    ['Format (5%)','format_quality']
+  ];
+  let html=`<div class="reward-big">${d.reward.toFixed(4)}</div><div class="reward-label">Final Weighted Reward</div>`;
+  html+=`<div class="info-row" style="justify-content:center;margin:12px 0"><span class="info-chip">Budget: ${d.budget}</span><span class="info-chip">Tokens: ${d.tokens_used}</span><span class="info-chip">Avg: ${d.avg_reward}</span></div>`;
+  html+=`<div class="score-grid">`;
+  comps.forEach(([label,key])=>{
+    const v=det[key]||0;const pct=Math.max(0,v*100);
+    const color=v>=0.7?'#00c853':v>=0.4?'#ffab00':'#ff3d57';
+    html+=`<div class="score-item"><span class="label">${label}</span><div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="val" style="color:${color}">${v.toFixed(2)}</span></div>`;
+  });
+  html+=`</div>`;
+  document.getElementById('resultContent').innerHTML=html;
+  document.getElementById('sLast').textContent=d.reward.toFixed(2);
+  document.getElementById('sAvg').textContent=d.avg_reward;
+  document.getElementById('sPhase').textContent=d.phase.split(':')[0].replace('Phase ','');
+  document.getElementById('phaseLabel').textContent=d.phase;
+}
+
+// ─── Training Simulation ───────────────────────────────────────
+async function runSimulation(){
+  const btn=document.getElementById('simBtn');
+  btn.disabled=true;btn.textContent='⏳ Training...';
+  const n=parseInt(document.getElementById('simEpisodes').value)||60;
+  const log=document.getElementById('logFeed');log.innerHTML='';
+  const r=await fetch(API+'/api/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({num_episodes:n})});
+  const data=await r.json();
+  const canvas=document.getElementById('rewardChart');
+  const ctx=canvas.getContext('2d');
+  canvas.width=canvas.parentElement.clientWidth;
+  canvas.height=canvas.parentElement.clientHeight;
+  const W=canvas.width,H=canvas.height;
+  let drawn=0;
+  function drawChart(upTo){
+    ctx.clearRect(0,0,W,H);
+    const padL=50,padR=10,padT=20,padB=40;
+    const cW=W-padL-padR,cH=H-padT-padB;
+    // Y range: -1 to 1
+    function yPos(v){return padT+cH*(1-(v+1)/2);}
+    function xPos(i){return padL+i*cW/(n-1);}
+    // Grid lines at -1, -0.5, 0, 0.5, 1
+    ctx.strokeStyle='rgba(255,255,255,0.05)';ctx.lineWidth=1;ctx.font='10px Inter';ctx.fillStyle='#555';
+    [-1,-0.5,0,0.5,1].forEach(v=>{const y=yPos(v);ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(W-padR,y);ctx.stroke();ctx.fillText(v.toFixed(1),4,y+4);});
+    // Zero line stronger
+    ctx.strokeStyle='rgba(255,255,255,0.15)';ctx.beginPath();ctx.moveTo(padL,yPos(0));ctx.lineTo(W-padR,yPos(0));ctx.stroke();
+    if(upTo<2)return;
+    // Reward line
+    ctx.beginPath();ctx.strokeStyle='#7b2ff7';ctx.lineWidth=2;
+    for(let i=0;i<upTo;i++){const x=xPos(i);const y=yPos(Math.max(-1,Math.min(1,data[i].reward)));i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+    ctx.stroke();
+    // Avg line
+    ctx.beginPath();ctx.strokeStyle='#00d2ff';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+    for(let i=0;i<upTo;i++){const x=xPos(i);const y=yPos(Math.max(-1,Math.min(1,data[i].avg_reward)));i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+    ctx.stroke();ctx.setLineDash([]);
+    // Legend
+    ctx.fillStyle='#7b2ff7';ctx.fillRect(W-160,10,12,3);ctx.fillStyle='#aaa';ctx.font='11px Inter';ctx.fillText('Reward',W-144,14);
+    ctx.fillStyle='#00d2ff';ctx.fillRect(W-160,22,12,3);ctx.fillStyle='#aaa';ctx.fillText('Avg (50ep)',W-144,26);
+    ctx.fillStyle='#555';ctx.font='10px Inter';ctx.fillText('Episode',W/2-20,H-4);
+  }
+  // Animate
+  let i=0;
+  const interval=setInterval(()=>{
+    if(i>=data.length){clearInterval(interval);btn.disabled=false;btn.textContent='🚀 Start Training';return;}
+    const ep=data[i];
+    const color=ep.reward>=0.7?'#00c853':ep.reward>=0.3?'#ffab00':'#ff3d57';
+    log.innerHTML=`<div class="log-line"><span class="ep">EP ${ep.episode}</span> | <span class="rw" style="color:${color}">${ep.reward.toFixed(3)}</span> | avg=${ep.avg_reward} | ${ep.phase} | skill=${ep.skill} | ${ep.prompt}</div>`+log.innerHTML;
+    // Update phase dots
+    const phaseNum=parseInt(ep.phase.match(/\d/)?.[0]||1);
+    document.querySelectorAll('#phaseBar .phase-dot').forEach((d,j)=>{d.className='phase-dot'+(j<phaseNum-1?' done':'')+(j===phaseNum-1?' active':'')});
+    drawChart(i+1);
+    i++;
+  },80);
+}
+</script>
+</body>
+</html>
