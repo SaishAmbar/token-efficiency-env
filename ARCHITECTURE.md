@@ -308,15 +308,17 @@ python _phase4_e2e.py
 
 ## 12. Status & roadmap
 
+> **Note on ordering:** Phase 5 (HF Spaces deploy) is intentionally being done **last**, after Phases 6 and 7. The training notebook in Phase 7 can drive a local `http://localhost:8000` server during development, so deployment isn't blocking; doing it last also lets us mint the production `HF_TOKEN` only once.
+
 | Phase | Goal | Status |
 |---|---|---|
 | 1 | Move env logic into the OpenEnv-shaped `server/token_efficiency_env_environment.py`; wire schemas | ✅ done |
 | 2 | Replace Anthropic with HuggingFace Inference judge; add keyword fallback | ✅ done |
 | 3 | Reward redesign (6 components, asymmetric self-assessment, absolute efficiency); new anti-hacking cliffs | ✅ done |
 | 4 | Local end-to-end smoke test (HTTP + WebSocket) | ✅ done |
-| 5 | Deploy as a HuggingFace Space (Docker SDK) | ⏳ pending |
-| 6 | Rewrite both `README.md`s; remove or modernise `web_dashboard.py`; add a `CHANGELOG` | ⏳ pending |
+| 6 | Rewrite both `README.md`s; remove or modernise `web_dashboard.py`; add a `CHANGELOG` | ⏳ next |
 | 7 | Training notebook scaffold (TRL `GRPOTrainer` + Qwen2.5-3B + N parallel env servers) | ⏳ pending |
+| 5 | Deploy as a HuggingFace Space (Docker SDK) — **deferred to last** | ⏳ pending |
 
 ---
 
