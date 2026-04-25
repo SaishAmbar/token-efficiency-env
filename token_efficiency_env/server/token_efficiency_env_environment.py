@@ -66,6 +66,30 @@ def _normalize_for_parrot(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text.lower())).strip()
 
 
+def _is_parrot(prompt: str, answer: str) -> float:
+    """
+    Check if answer parrots the prompt using Jaccard similarity.
+    Returns Jaccard score if parrot detected (>= 0.85), else 0.0.
+    Short prompts (< 4 tokens) are exempt — natural answers share most words.
+    """
+    p_norm = _normalize_for_parrot(prompt)
+    a_norm = _normalize_for_parrot(answer)
+    if not p_norm or not a_norm:
+        return 0.0
+    p_tokens = set(p_norm.split())
+    a_tokens = set(a_norm.split())
+    if len(p_tokens) < 4:  # short prompts can't be parroted reliably
+        return 0.0
+    jaccard = len(p_tokens & a_tokens) / len(p_tokens | a_tokens)
+    return jaccard if jaccard >= 0.85 else 0.0
+
+# §1 Layer C: Strict format regex — no hidden chain-of-thought allowed
+SHELL_RE = re.compile(
+    r"^\s*<budget>(\d+)</budget>\s*<answer>(.*?)</answer>\s*$",
+    re.DOTALL,
+)
+
+
 # ─── Curriculum (advance_threshold = None ⇒ final phase) ────────────────
 CURRICULUM_PHASES = [
     {
@@ -248,19 +272,18 @@ class TokenEfficiencyEnvironment(Environment):
         start_time = time.time()
         raw = action.raw_response
 
-        # ─── Parse format ─────────────────────────────────────────
-        budget_match = re.search(r"<budget>(\d+)</budget>", raw)
-        answer_match = re.search(r"<answer>(.*?)</answer>", raw, re.DOTALL)
+        # ─── Parse format (§1 Layer C: strict end-anchored regex) ─
+        shell_match = SHELL_RE.match(raw)
 
-        if not budget_match or not answer_match:
+        if not shell_match:
             return self._fail(
                 error="bad_format",
                 reward=-1.0,
-                log_msg="BAD FORMAT — missing <budget> or <answer>",
+                log_msg="BAD FORMAT — missing <budget> or <answer> tags, or extraneous text outside tags",
             )
 
-        allocated_budget = int(budget_match.group(1))
-        answer = answer_match.group(1).strip()
+        allocated_budget = int(shell_match.group(1))
+        answer = shell_match.group(2).strip()
 
         # ─── Budget clamp ─────────────────────────────────────────
         original_budget = allocated_budget
@@ -285,19 +308,13 @@ class TokenEfficiencyEnvironment(Environment):
                 allocated_budget=allocated_budget,
             )
 
-        # ─── Parrot guard ─────────────────────────────────────────
-        # Hard-fail if the answer literally contains the prompt as a
-        # substring (after normalising case and punctuation). This catches
-        # the "echo the question back" hack that the LLM judge would
-        # otherwise score 0.0 on but that the other components might
-        # accidentally reward.
-        prompt_norm = _normalize_for_parrot(self.current_task["prompt"])
-        answer_norm = _normalize_for_parrot(answer)
-        if prompt_norm and prompt_norm in answer_norm:
+        # ─── Parrot guard (§5 — Jaccard) ──────────────────────────
+        parrot_score = _is_parrot(self.current_task["prompt"], answer)
+        if parrot_score:
             return self._fail(
                 error="parrot",
                 reward=-0.5,
-                log_msg="PARROT — answer contains prompt verbatim",
+                log_msg=f"PARROT — answer parrots prompt (Jaccard={parrot_score:.2f})",
                 answer=answer,
                 allocated_budget=allocated_budget,
             )
@@ -315,12 +332,14 @@ class TokenEfficiencyEnvironment(Environment):
                     allocated_budget=allocated_budget,
                 )
 
-        # ─── Token count + length sanity ──────────────────────────
+        # ─── Token count (§1 Layer A) + length sanity ─────────────
         try:
-            tokens_used = _count_tokens(answer)
+            tokens_used = _count_tokens(raw)
+            answer_token_count = _count_tokens(answer)
         except Exception as exc:  # pragma: no cover
             logger.exception("Tokenizer failed; falling back to word*1.3 estimate: %s", exc)
-            tokens_used = max(1, int(len(words) * 1.3))
+            tokens_used = max(1, int(len(raw.split()) * 1.3))
+            answer_token_count = max(1, int(len(words) * 1.3))
 
         if tokens_used > MAX_ANSWER_TOKENS:
             return self._fail(
@@ -366,6 +385,7 @@ class TokenEfficiencyEnvironment(Environment):
             answer=answer,
             allocated_budget=allocated_budget,
             tokens_used=tokens_used,
+            answer_token_count=answer_token_count,  # §1 Layer B: diagnostic
             complexity=self.current_task.get("complexity", ""),
             phase=self._phase_name(),
             episode=self.episode_count,

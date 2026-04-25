@@ -6,7 +6,7 @@ PROMPT_BANK = [
     {
         "prompt": "What is 15% of 200?",
         "complexity": "easy",
-        "expected_keywords": ["30"]
+        "expected_keywords": [["30", "thirty"]]
     },
     {
         "prompt": "What is the capital of France?",
@@ -21,7 +21,7 @@ PROMPT_BANK = [
     {
         "prompt": "What is 2 to the power of 8?",
         "complexity": "easy",
-        "expected_keywords": ["256"]
+        "expected_keywords": [["256", "two hundred fifty six"]]
     },
     {
         "prompt": "What color do you get mixing red and blue?",
@@ -31,12 +31,12 @@ PROMPT_BANK = [
     {
         "prompt": "How many sides does a hexagon have?",
         "complexity": "easy",
-        "expected_keywords": ["6", "six"]
+        "expected_keywords": [["6", "six"]]
     },
     {
         "prompt": "What is the boiling point of water in Celsius?",
         "complexity": "easy",
-        "expected_keywords": ["100"]
+        "expected_keywords": [["100", "one hundred"]]
     },
     {
         "prompt": "Who wrote Romeo and Juliet?",

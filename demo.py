@@ -41,6 +41,26 @@ def count_tokens_simple(text):
     """Rough token count (words × 1.3) — avoids needing the Qwen tokenizer."""
     return max(1, int(len(text.split()) * 1.3))
 
+def _normalize_for_parrot(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+def _is_parrot(prompt: str, answer: str) -> float:
+    p_norm = _normalize_for_parrot(prompt)
+    a_norm = _normalize_for_parrot(answer)
+    if not p_norm or not a_norm:
+        return 0.0
+    p_tokens = set(p_norm.split())
+    a_tokens = set(a_norm.split())
+    if len(p_tokens) < 4:
+        return 0.0
+    jaccard = len(p_tokens & a_tokens) / len(p_tokens | a_tokens)
+    return jaccard if jaccard >= 0.85 else 0.0
+
+SHELL_RE = re.compile(r'^\s*<budget>(\d+)</budget>\s*<answer>(.*?)</answer>\s*$', re.DOTALL)
+
 
 def mock_correctness(prompt, response, expected_keywords):
     """Stand-in for Claude API correctness judge — uses keyword overlap."""
@@ -77,13 +97,16 @@ def score_demo(prompt, response, allocated_budget, tokens_used,
     details["budget_reasonableness"] = round(budget_reasonableness, 4)
 
     # 4. Redundancy (10%)
+    BIGRAM_MIN_WORDS = 8
+    BIGRAM_FULL_WORDS = 16
     words = response.lower().split()
     if len(words) > 0:
         unique_ratio = len(set(words)) / len(words)
         if len(words) >= 2:
             bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words) - 1)]
-            bigram_counts = Counter(bigrams)
-            bigram_penalty = min(bigram_counts.most_common(1)[0][1] / max(len(bigrams), 1), 1.0)
+            raw_penalty = Counter(bigrams).most_common(1)[0][1] / max(len(bigrams), 1)
+            ramp = max(0.0, min(1.0, (len(words) - BIGRAM_MIN_WORDS) / (BIGRAM_FULL_WORDS - BIGRAM_MIN_WORDS)))
+            bigram_penalty = min(raw_penalty * ramp, 1.0)
         else:
             bigram_penalty = 0.0
         redundancy_score = unique_ratio * 0.7 + (1.0 - bigram_penalty) * 0.3
@@ -102,26 +125,20 @@ def score_demo(prompt, response, allocated_budget, tokens_used,
     # 6. Keyword Verification (5%)
     if expected_keywords:
         answer_lower = response.lower()
-        matches = sum(1 for kw in expected_keywords if kw.lower() in answer_lower)
-        keyword_score = matches / len(expected_keywords)
+        matched = 0
+        for kw_entry in expected_keywords:
+            forms = [kw_entry] if isinstance(kw_entry, str) else kw_entry
+            if any(f.lower() in answer_lower for f in forms):
+                matched += 1
+        keyword_score = matched / len(expected_keywords)
     else:
         keyword_score = 1.0
     details["keyword_verification"] = round(keyword_score, 4)
 
     # 7. Format Quality (5%)
     format_score = 1.0
-    if "  " in response or response != response.strip():
+    if "  " in response:
         format_score -= 0.2
-    if complexity in ("medium", "hard") and len(words) < 5:
-        format_score -= 0.3
-    if complexity == "easy" and len(words) > 30:
-        format_score -= 0.3
-    prompt_words = set(prompt.lower().split())
-    answer_words = set(response.lower().split())
-    if len(answer_words) > 0:
-        overlap = len(prompt_words & answer_words) / len(answer_words)
-        if overlap > 0.7:
-            format_score -= 0.3
     format_score = max(0.0, min(1.0, format_score))
     details["format_quality"] = round(format_score, 4)
 
@@ -188,16 +205,15 @@ def run_scenario(scenario_num, task, raw_response, description):
     # ── Step 3: env.step() — parse ──────────────────────────────
     print(f"\n{BOLD}3. env.step() — Parse & Validate{RESET}")
 
-    budget_match = re.search(r"<budget>(\d+)</budget>", raw_response)
-    answer_match = re.search(r"<answer>(.*?)</answer>", raw_response, re.DOTALL)
+    shell_match = SHELL_RE.match(raw_response)
 
-    if not budget_match or not answer_match:
-        print(f"   {RED}✗ BAD FORMAT — missing <budget> or <answer> tags{RESET}")
+    if not shell_match:
+        print(f"   {RED}✗ BAD FORMAT — missing <budget> or <answer> tags, or extraneous text{RESET}")
         print(f"   {RED}→ reward = -1.0 (episode ends immediately){RESET}")
         return
 
-    allocated_budget = int(budget_match.group(1))
-    answer = answer_match.group(1).strip()
+    allocated_budget = int(shell_match.group(1))
+    answer = shell_match.group(2).strip()
 
     print(f"   ✓ Parsed budget: {allocated_budget}")
     print(f"   ✓ Parsed answer: \"{answer}\"")
@@ -227,9 +243,16 @@ def run_scenario(scenario_num, task, raw_response, description):
             return
     print(f"   ✓ No repetition detected")
 
+    # Parrot guard
+    parrot_score = _is_parrot(task['prompt'], answer)
+    if parrot_score:
+        print(f"   {RED}✗ PARROT: answer echoes prompt (Jaccard={parrot_score:.2f}) → reward = -0.5{RESET}")
+        return
+    print(f"   ✓ Not a parrot")
+
     # Token count
-    tokens_used = count_tokens_simple(answer)
-    print(f"   ✓ Tokens used: ~{tokens_used}")
+    tokens_used = count_tokens_simple(raw_response)
+    print(f"   ✓ Raw tokens used: ~{tokens_used}")
 
     if tokens_used > MAX_ANSWER_TOKENS:
         print(f"   {RED}✗ TOO LONG: {tokens_used} > {MAX_ANSWER_TOKENS} → reward = -0.5{RESET}")
@@ -288,11 +311,12 @@ if __name__ == "__main__":
 ╔══════════════════════════════════════════════════════════════╗
 ║           TokenEfficiencyEnv — Interactive Demo             ║
 ║                                                              ║
-║  Simulates 4 scenarios showing the full env lifecycle:      ║
+║  Simulates 5 scenarios showing the full env lifecycle:      ║
 ║    1. Perfect concise answer (easy question)                ║
 ║    2. Verbose wasteful answer (easy question)               ║
 ║    3. Good medium-complexity answer                         ║
 ║    4. Bad format (missing tags)                             ║
+║    5. Hidden CoT Exploit (caught by strict parser)          ║
 ╚══════════════════════════════════════════════════════════════╝
 {RESET}""")
 
@@ -338,6 +362,14 @@ if __name__ == "__main__":
         task=PROMPT_BANK[0],  # "What is 15% of 200?" — easy
         raw_response="The answer is 30.",
         description="Bad format (no tags → instant penalty)",
+    )
+
+    # ── Scenario 5: Hidden CoT Exploit ──────────────────────────
+    run_scenario(
+        scenario_num=5,
+        task=PROMPT_BANK[0],
+        raw_response="Let me think step by step. 15% is 0.15. 0.15 * 200 = 30. <budget>20</budget><answer>30.</answer>",
+        description="Hidden CoT Exploit (strict parser catches text outside tags)",
     )
 
     # ── Summary ─────────────────────────────────────────────────

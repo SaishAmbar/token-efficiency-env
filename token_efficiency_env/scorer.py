@@ -162,13 +162,17 @@ def score_answer(
     details["self_assessment"] = round(self_assessment, 4)
 
     # ─── 4. Redundancy (5%) ────────────────────────────────────────
+    # §2 fix: smooth bigram ramp to avoid penalising short concise answers
+    BIGRAM_MIN_WORDS = 8
+    BIGRAM_FULL_WORDS = 16
     words = response.lower().split()
     if len(words) > 0:
         unique_ratio = len(set(words)) / len(words)
         if len(words) >= 2:
             bigrams = [f"{words[i]} {words[i + 1]}" for i in range(len(words) - 1)]
-            most_common_count = Counter(bigrams).most_common(1)[0][1]
-            bigram_penalty = min(most_common_count / max(len(bigrams), 1), 1.0)
+            raw_penalty = Counter(bigrams).most_common(1)[0][1] / max(len(bigrams), 1)
+            ramp = max(0.0, min(1.0, (len(words) - BIGRAM_MIN_WORDS) / (BIGRAM_FULL_WORDS - BIGRAM_MIN_WORDS)))
+            bigram_penalty = min(raw_penalty * ramp, 1.0)
         else:
             bigram_penalty = 0.0
         redundancy_score = unique_ratio * 0.7 + (1.0 - bigram_penalty) * 0.3
@@ -180,30 +184,23 @@ def score_answer(
     # Uses the same prefix-stem matcher as the judge fallback so a stem
     # like "antibod" in prompts.py reliably catches "antibodies" in the
     # answer. See judge.matches_keyword for the matching policy.
+    # §7 fix: supports list-of-lists schema for numeric keyword aliases
     if expected_keywords:
         answer_lower = response.lower()
-        matches = sum(
-            1 for kw in expected_keywords if matches_keyword(answer_lower, kw)
-        )
-        keyword_score = matches / len(expected_keywords)
+        matched = 0
+        for kw_entry in expected_keywords:
+            forms = [kw_entry] if isinstance(kw_entry, str) else kw_entry
+            if any(matches_keyword(answer_lower, f) for f in forms):
+                matched += 1
+        keyword_score = matched / len(expected_keywords)
     else:
         keyword_score = 1.0
     details["keyword_verification"] = round(keyword_score, 4)
 
     # ─── 6. Format Quality (5%) ────────────────────────────────────
     format_score = 1.0
-    if "  " in response or response != response.strip():
+    if "  " in response:
         format_score -= 0.2
-    if complexity in ("medium", "hard") and len(words) < 5:
-        format_score -= 0.3
-    if complexity == "easy" and len(words) > 30:
-        format_score -= 0.3
-    prompt_words = set(prompt.lower().split())
-    answer_words = set(response.lower().split())
-    if len(answer_words) > 0:
-        overlap = len(prompt_words & answer_words) / len(answer_words)
-        if overlap > 0.7:
-            format_score -= 0.3
     format_score = max(0.0, min(1.0, format_score))
     details["format_quality"] = round(format_score, 4)
 

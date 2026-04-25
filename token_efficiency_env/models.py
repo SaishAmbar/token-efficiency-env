@@ -102,3 +102,7 @@ class TokenEfficiencyObservation(Observation):
             '"bad_format", "empty", "parrot", "repetition", or "too_long".'
         ),
     )
+    answer_token_count: Optional[int] = Field(
+        default=None,
+        description="Token count of inner answer only (diagnostic — §1 Layer B)",
+    )

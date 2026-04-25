@@ -251,6 +251,7 @@ def _step_to_dict(env: TokenEfficiencyEnvironment, obs) -> dict:
         "reward": float(obs.reward) if obs.reward is not None else 0.0,
         "details": dict(obs.reward_components),
         "tokens_used": obs.tokens_used,
+        "answer_token_count": getattr(obs, "answer_token_count", None),
         "budget": obs.allocated_budget,
         "answer": obs.answer,
         "avg_reward": round(avg, 4),

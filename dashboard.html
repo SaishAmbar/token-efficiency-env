@@ -192,7 +192,7 @@ async function submitAnswer(){
   ];
   let html=`<div class="reward-big">${d.reward.toFixed(4)}</div><div class="reward-label">Final Weighted Reward</div>`;
   html+=`<div style="text-align:center;font-size:12px;color:#888;margin:6px 0">Scored against: <span style="color:#aaa;font-style:italic">"${d.prompt}"</span></div>`;
-  html+=`<div class="info-row" style="justify-content:center;margin:12px 0"><span class="info-chip">Budget: ${d.budget}</span><span class="info-chip">Tokens: ${d.tokens_used}</span><span class="info-chip">Avg: ${d.avg_reward}</span></div>`;
+  html+=`<div class="info-row" style="justify-content:center;margin:12px 0"><span class="info-chip">Budget: ${d.budget}</span><span class="info-chip">Raw Tokens: ${d.tokens_used}</span><span class="info-chip">Answer Tokens: ${d.answer_token_count||'—'}</span><span class="info-chip">Avg: ${d.avg_reward}</span></div>`;
   html+=`<div class="score-grid">`;
   comps.forEach(([label,key])=>{
     const v=det[key]||0;const pct=Math.max(0,v*100);
