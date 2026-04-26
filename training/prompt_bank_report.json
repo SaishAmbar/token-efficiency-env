@@ -1,0 +1,45 @@
+{
+  "git_sha": "4d6408a",
+  "timestamp": "2026-04-26 00:06:12 UTC",
+  "seed": 42,
+  "sources": [
+    "gsm8k"
+  ],
+  "total_prompts": 50,
+  "elapsed_seconds": 23.09,
+  "tier_counts": {
+    "easy": 50
+  },
+  "samples": [
+    {
+      "prompt": "Caleb picked a handful of dandelion puffs. He gave 3 to his mom, another 3 to his sister, 5 to his grandmother, and 2 to his dog. Then, he divided the remaining dandelion puffs equally among his 3 friends. How many dandelion puffs did each friend receive if he originally picked 40 dandelion puffs?",
+      "complexity": "easy",
+      "expected_keywords": [
+        [
+          "9",
+          "nine"
+        ]
+      ]
+    },
+    {
+      "prompt": "John writes 20 pages a day.  How long will it take him to write 3 books that are 400 pages each?",
+      "complexity": "easy",
+      "expected_keywords": [
+        [
+          "60",
+          "sixty"
+        ]
+      ]
+    },
+    {
+      "prompt": "Jerome is taking a 150-mile bicycle trip. He wants to ride 12 miles for 12 days. How long will he ride on the 13th day to finish his goal?",
+      "complexity": "easy",
+      "expected_keywords": [
+        [
+          "6",
+          "six"
+        ]
+      ]
+    }
+  ]
+}

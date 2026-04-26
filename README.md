@@ -5,6 +5,9 @@
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-blue)](https://github.com/meta-pytorch/OpenEnv)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
 [![License: BSD-3](https://img.shields.io/badge/License-BSD--3--Clause-yellow)](LICENSE)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SaishAmbar/token-efficiency-env/blob/main/notebooks/train_grpo.ipynb)
+
+> **Don't have a local GPU?** Click the **Open In Colab** badge above to run the full GRPO training notebook on a free T4 — the first cell installs everything, prompts for your `HF_TOKEN`, and takes you straight to a runnable trainer. No local setup needed.
 
 > **Read [`ARCHITECTURE.md`](ARCHITECTURE.md) first** for the full design (data flow, reward maths, anti-hacking cliffs, statefulness gotcha, file map). This README is the friendly executive summary.
 

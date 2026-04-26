@@ -72,15 +72,27 @@ def matches_keyword(answer_lower: str, keyword: str) -> bool:
     return bool(re.search(pattern, answer_lower))
 
 
-def _keyword_score(answer: str, keywords: list[str]) -> float:
+def _keyword_score(answer: str, keywords) -> float:
     """Fraction of expected keywords found in the answer, in [0.0, 1.0].
 
     Returns 0.5 (neutral) when no keywords are supplied — no ground truth.
+
+    Supports two keyword schemas (§7 of VULNERABILITY_FIX_PLAN.md):
+      * flat ``str``             — one keyword, legacy form.
+      * ``list[str]`` (inner)    — alias group; matching ANY form counts
+        the group as one satisfied keyword. Used for numeric aliases like
+        ``["30", "thirty"]`` so digit-form and word-form answers both score.
+
+    Both shapes can coexist in the same ``expected_keywords`` list.
     """
     if not keywords:
         return 0.5
     a = answer.lower()
-    matches = sum(1 for kw in keywords if matches_keyword(a, kw))
+    matches = 0
+    for entry in keywords:
+        forms = [entry] if isinstance(entry, str) else entry
+        if any(matches_keyword(a, f) for f in forms):
+            matches += 1
     return matches / len(keywords)
 
 
@@ -203,9 +215,15 @@ class HFInferenceJudge:
         try:
             keys = expected_keywords or []
             if keys:
+                # §7 schema: each entry may be a flat str or a list of alias
+                # forms. Flatten with slash-separated alternatives so the
+                # judge sees e.g. "30/thirty" as "one key fact, either form".
+                keys_display = [
+                    k if isinstance(k, str) else "/".join(k) for k in keys
+                ]
                 content = _JUDGE_PROMPT_WITH_KEYS.format(
                     prompt=prompt,
-                    keys=", ".join(keys),
+                    keys=", ".join(keys_display),
                     answer=answer,
                 )
             else:

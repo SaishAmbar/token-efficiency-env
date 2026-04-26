@@ -24,10 +24,34 @@ datasets>=2.20.0,<4.0.0
 sentencepiece>=0.2.0
 tiktoken>=0.7.0
 
+# ─── Phase 8 programmatic prompt bank ─────────────────────────────────
+# Only needed when PROMPT_BANK_MODE=full; the starter bank (default) has
+# no extra deps. num2words is used to expand numeric expected_keywords
+# into [digit, word-form] aliases (§7 of the vulnerability fix plan).
+num2words>=0.5.13
+
 # ─── 4-bit / 8-bit quantisation (optional but recommended for 16GB GPUs)
 # Comment out if you're on Apple Silicon / CPU-only — bitsandbytes will
 # fail to install and isn't needed for full-precision LoRA on a >24GB card.
 bitsandbytes>=0.43.0; sys_platform != "darwin"
+
+# ─── Unsloth acceleration (OPTIONAL, Linux + CUDA only) ───────────────
+# Flip ``TrainingConfig.use_unsloth = True`` to route model loading + LoRA
+# through Unsloth's FastLanguageModel. Gains observed in the Unsloth/TRL
+# cookbook: ~2× training throughput and ~40% lower VRAM vs vanilla TRL on
+# 7B-class models with LoRA. Hackathon guideline §10, §12 and §59 list
+# Unsloth as a first-class part of the recommended stack.
+#
+# Not importable at module load — only pulled in inside the notebook's
+# model-loading cell when ``use_unsloth`` is on, so CI / the test suite /
+# Windows users / the env server package never need it.
+#
+# Platform gating:
+#   * Linux + NVIDIA CUDA only (Windows native is unsupported upstream;
+#     WSL2 works, darwin / CPU does not).
+#   * If you're not on a supported platform, leave ``use_unsloth=False``
+#     and the vanilla HF+TRL path is used unchanged.
+unsloth>=2024.12.0; sys_platform == "linux"
 
 # ─── Notebook + plotting ──────────────────────────────────────────────
 jupyter>=1.0.0

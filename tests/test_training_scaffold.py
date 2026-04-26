@@ -29,8 +29,13 @@ import pytest
 from training.config import TrainingConfig
 from training.prompts_split import (
     HOLDOUT_INDICES,
+    PROBE_INDICES,
     TRAIN_INDICES,
+    _allocate_counts,
+    dump_split,
     holdout_prompts,
+    probe_prompts,
+    stratified_split,
     train_prompts,
 )
 from training.reward_adapter import (
@@ -55,25 +60,154 @@ def test_config_defaults_are_self_consistent():
     assert "judge calls" in text
 
 
+def test_config_smoke_preset_has_expected_shape():
+    """``TrainingConfig.smoke()`` must downscale the run enough to finish on
+    a T4 in ~20 min but keep the integration points (Unsloth, SFT) on
+    when colab=True."""
+    cfg = TrainingConfig.smoke(colab=True)
+    assert cfg.max_steps == 50
+    assert cfg.num_generations == 4
+    assert cfg.judge_backend == "keyword"
+    assert cfg.prompt_bank_mode == "starter"
+    assert cfg.use_unsloth is True
+    assert cfg.use_sft_warmup is True
+    assert "smoke" in cfg.output_dir
+
+
+def test_config_smoke_preset_colab_false_disables_gpu_paths():
+    """On non-Colab kernels the smoke preset keeps Unsloth + SFT off so
+    a Windows/macOS dev can still execute the config without those deps."""
+    cfg = TrainingConfig.smoke(colab=False)
+    assert cfg.use_unsloth is False
+    assert cfg.use_sft_warmup is False
+    # But the run-shape parts (steps, judge, bank) stay scaled down.
+    assert cfg.max_steps == 50
+    assert cfg.judge_backend == "keyword"
+
+
+def test_config_smoke_estimate_judge_calls_is_cheap():
+    """Smoke should cost at most a few hundred judge calls so we never hit
+    HF rate limits during pipeline shakedown (doubly safe: default judge
+    is 'keyword' anyway)."""
+    cfg = TrainingConfig.smoke(colab=True)
+    assert cfg.estimate_judge_calls() <= 300
+
+
 def test_config_cost_estimate_scales_linearly():
     cfg_small = TrainingConfig(num_generations=4, max_steps=10)
     cfg_big = TrainingConfig(num_generations=8, max_steps=100)
     assert cfg_big.estimate_judge_calls() == 20 * cfg_small.estimate_judge_calls()
 
 
-# ─── Split ─────────────────────────────────────────────────────────────
-def test_split_no_overlap():
-    assert set(TRAIN_INDICES).isdisjoint(set(HOLDOUT_INDICES))
+# ─── Split (Phase 8: stratified train / holdout / probe) ───────────────
+def test_split_is_fully_disjoint():
+    """Every PROMPT_BANK index belongs to exactly one of train/holdout/probe."""
+    train = set(TRAIN_INDICES)
+    holdout = set(HOLDOUT_INDICES)
+    probe = set(PROBE_INDICES)
+    assert train.isdisjoint(holdout)
+    assert train.isdisjoint(probe)
+    assert holdout.isdisjoint(probe)
 
 
-def test_split_holdout_size_is_six():
-    assert len(HOLDOUT_INDICES) == 6
-    assert len(holdout_prompts()) == 6
+def test_split_covers_every_prompt_exactly_once():
+    from token_efficiency_env.prompts import PROMPT_BANK
+
+    covered = set(TRAIN_INDICES) | set(HOLDOUT_INDICES) | set(PROBE_INDICES)
+    assert covered == set(range(len(PROMPT_BANK))), (
+        "split must partition PROMPT_BANK, not drop or duplicate indices"
+    )
 
 
-def test_split_holdout_covers_all_three_tiers():
-    tiers = {p["complexity"] for p in holdout_prompts()}
-    assert tiers == {"easy", "medium", "hard"}
+def test_holdout_and_probe_are_non_empty_and_cover_all_tiers():
+    """Stratified invariant: on the starter 24-prompt bank each eval bucket
+    contains at least one prompt from every complexity tier."""
+    assert holdout_prompts(), "holdout must not be empty on the 24-prompt bank"
+    assert probe_prompts(), "probe must not be empty on the 24-prompt bank"
+    for name, bucket in [("holdout", holdout_prompts()), ("probe", probe_prompts())]:
+        tiers = {p["complexity"] for p in bucket}
+        assert tiers == {"easy", "medium", "hard"}, (
+            f"{name} is missing tiers: {tiers!r}"
+        )
+
+
+def test_split_is_deterministic_under_fixed_seed():
+    """Re-running ``stratified_split(PROMPT_BANK, seed=42)`` twice must
+    produce identical indices — reviewers depend on this to audit the
+    holdout set."""
+    from token_efficiency_env.prompts import PROMPT_BANK
+
+    a = stratified_split(PROMPT_BANK, seed=42)
+    b = stratified_split(PROMPT_BANK, seed=42)
+    assert a == b
+
+
+def test_split_changes_under_different_seed():
+    """Sanity: the splitter actually uses the seed."""
+    from token_efficiency_env.prompts import PROMPT_BANK
+
+    a = stratified_split(PROMPT_BANK, seed=42)
+    b = stratified_split(PROMPT_BANK, seed=123)
+    assert a != b, "different seeds should produce different splits"
+    # ...but must still cover exactly the same indices (partition invariant).
+    assert (
+        set(a["train"]) | set(a["holdout"]) | set(a["probe"])
+        == set(b["train"]) | set(b["holdout"]) | set(b["probe"])
+    )
+
+
+@pytest.mark.parametrize(
+    "n_tier, expected",
+    [
+        # Degenerate / tiny tiers.
+        (0, (0, 0, 0)),
+        (1, (1, 0, 0)),
+        (2, (0, 1, 1)),
+        # Small-tier branch guarantees >=1 in holdout AND probe.
+        (3, (1, 1, 1)),
+        (8, (6, 1, 1)),
+        (10, (8, 1, 1)),
+        # Above SMALL_TIER_THRESHOLD (=20) counts follow raw fractions.
+        (100, (85, 10, 5)),
+    ],
+)
+def test_allocate_counts_sums_to_n_and_hits_known_layouts(n_tier, expected):
+    result = _allocate_counts(n_tier)
+    assert sum(result) == n_tier, (
+        f"allocator dropped prompts: {result} sums to {sum(result)} != {n_tier}"
+    )
+    assert result == expected
+
+
+def test_stratification_within_tolerance_on_a_synthetic_bank():
+    """On a 300-prompt bank (100 per tier), per-tier holdout should be
+    ~10% with rounding — plan §6.4 asks for ±5% tolerance."""
+    synth = (
+        [{"prompt": f"easy-{i}", "complexity": "easy"} for i in range(100)]
+        + [{"prompt": f"medium-{i}", "complexity": "medium"} for i in range(100)]
+        + [{"prompt": f"hard-{i}", "complexity": "hard"} for i in range(100)]
+    )
+    split = stratified_split(synth, seed=1)
+    for tier in ("easy", "medium", "hard"):
+        tier_holdout = sum(1 for i in split["holdout"] if synth[i]["complexity"] == tier)
+        ratio = tier_holdout / 100.0
+        assert 0.05 <= ratio <= 0.15, (
+            f"{tier}: holdout ratio {ratio:.3f} outside ±5% of 0.10"
+        )
+
+
+def test_dump_split_writes_stable_json(tmp_path):
+    """The JSON file under ``training/prompts_split.json`` is part of how
+    we audit the split; test it's valid, includes the seed, and totals match."""
+    import json as _json
+
+    out = dump_split(tmp_path / "prompts_split.json")
+    payload = _json.loads(out.read_text(encoding="utf-8"))
+    assert payload["seed"] == 42
+    assert payload["total_prompts"] == len(TRAIN_INDICES) + len(HOLDOUT_INDICES) + len(PROBE_INDICES)
+    assert payload["train"] == list(TRAIN_INDICES)
+    assert payload["holdout"] == list(HOLDOUT_INDICES)
+    assert payload["probe"] == list(PROBE_INDICES)
 
 
 def test_train_prompts_dont_share_objects_with_bank():
@@ -84,6 +218,77 @@ def test_train_prompts_dont_share_objects_with_bank():
     original_prompt = PROMPT_BANK[TRAIN_INDICES[0]]["prompt"]
     sample["prompt"] = "MUTATED"
     assert PROMPT_BANK[TRAIN_INDICES[0]]["prompt"] == original_prompt
+
+
+# ─── Mode-aware split (prompt_bank_mode="full" wiring) ────────────────
+def test_train_prompts_mode_none_matches_starter():
+    """``mode=None`` must be identical to ``mode='starter'`` (back-compat)."""
+    assert train_prompts() == train_prompts("starter")
+    assert holdout_prompts() == holdout_prompts("starter")
+    assert probe_prompts() == probe_prompts("starter")
+
+
+def test_split_mode_full_uses_injected_bank(monkeypatch):
+    """With a stub full-bank loader, mode='full' must produce a stratified
+    split on the stub and NOT touch the starter bank."""
+    from training import prompts_split
+    from token_efficiency_env import prompts as prompts_mod
+
+    stub_bank = (
+        [{"prompt": f"E{i}", "complexity": "easy", "expected_keywords": []} for i in range(40)]
+        + [{"prompt": f"M{i}", "complexity": "medium", "expected_keywords": []} for i in range(40)]
+        + [{"prompt": f"H{i}", "complexity": "hard", "expected_keywords": []} for i in range(40)]
+    )
+
+    monkeypatch.setattr(prompts_mod, "_FULL_BANK_CACHE", None, raising=False)
+    monkeypatch.setattr(prompts_mod, "load_full_prompt_bank", lambda: stub_bank)
+    prompts_split.reset_split_cache()
+
+    train = train_prompts("full")
+    holdout = holdout_prompts("full")
+    probe = probe_prompts("full")
+
+    total = len(train) + len(holdout) + len(probe)
+    assert total == len(stub_bank), (
+        f"mode=full split must partition the injected bank (got {total}/{len(stub_bank)})"
+    )
+
+    # Holdout + probe must each contain >=1 prompt per tier (stratified).
+    for name, bucket in [("holdout", holdout), ("probe", probe)]:
+        tiers = {p["complexity"] for p in bucket}
+        assert tiers == {"easy", "medium", "hard"}, (
+            f"mode=full {name} is missing tiers: {tiers!r}"
+        )
+
+    # Starter indices must be untouched — the module constants still
+    # describe the 24-prompt bank.
+    from token_efficiency_env.prompts import STARTER_PROMPTS
+    assert len(TRAIN_INDICES) + len(HOLDOUT_INDICES) + len(PROBE_INDICES) == len(STARTER_PROMPTS)
+
+    prompts_split.reset_split_cache()
+
+
+def test_describe_split_mode_full_renders_without_dumping_every_prompt(monkeypatch):
+    """On >50-prompt banks, describe_split must switch to sample-mode
+    (5 prompts per bucket) rather than dumping the whole holdout."""
+    from training import prompts_split
+    from training.prompts_split import describe_split
+    from token_efficiency_env import prompts as prompts_mod
+
+    stub_bank = (
+        [{"prompt": f"E{i}", "complexity": "easy", "expected_keywords": []} for i in range(40)]
+        + [{"prompt": f"M{i}", "complexity": "medium", "expected_keywords": []} for i in range(40)]
+        + [{"prompt": f"H{i}", "complexity": "hard", "expected_keywords": []} for i in range(40)]
+    )
+    monkeypatch.setattr(prompts_mod, "_FULL_BANK_CACHE", None, raising=False)
+    monkeypatch.setattr(prompts_mod, "load_full_prompt_bank", lambda: stub_bank)
+    prompts_split.reset_split_cache()
+
+    out = describe_split("full")
+    assert "mode=full" in out
+    assert "sample" in out.lower(), "should switch to sample mode for banks > 50"
+
+    prompts_split.reset_split_cache()
 
 
 # ─── Reward adapter — happy path ───────────────────────────────────────

@@ -23,7 +23,7 @@ Observation:
                           "bad_format", "empty", "parrot", "repetition", "too_long".
 """
 
-from typing import Dict
+from typing import Dict, Optional
 
 from openenv.core.env_server.types import Action, Observation
 from pydantic import Field

@@ -38,7 +38,12 @@ except Exception as e:  # pragma: no cover
 try:
     from ..models import TokenEfficiencyAction, TokenEfficiencyObservation
     from .token_efficiency_env_environment import TokenEfficiencyEnvironment
-except ModuleNotFoundError:
+except ImportError:
+    # Catches BOTH ModuleNotFoundError (no parent package present) AND the
+    # bare ImportError Python raises for "attempted relative import beyond
+    # top-level package" — which is what happens on HF Spaces, where the
+    # module is loaded as ``server.app`` instead of
+    # ``token_efficiency_env.server.app``.
     from models import TokenEfficiencyAction, TokenEfficiencyObservation
     from server.token_efficiency_env_environment import TokenEfficiencyEnvironment
 

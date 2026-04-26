@@ -56,12 +56,20 @@ except ImportError:  # pragma: no cover — exercised only at container start
 
 # Maps complexity labels to the IDEAL token count for a good answer.
 # Numbers chosen to be ~1.5× the typical concise correct answer length —
-# enough room to be informative, not so much that verbose answers get a free
-# pass. Tune in Phase 4 if smoke testing shows a bias.
+# enough room to be informative, not so much that verbose answers get a
+# free pass.
+#
+# v0.3.0 re-tune (§1.5 of VULNERABILITY_FIX_PLAN.md):
+# ``tokens_used`` now counts the full ``<budget>N</budget><answer>...</answer>``
+# shell (Layer A of the hidden-CoT fix), not just the inner answer. The Qwen
+# tokenizer reports the wrapper alone at 10 / 11 / 12 tokens for 1 / 2 / 3-digit
+# budgets respectively. We therefore bump each tier by +12 so a concise, correct
+# answer still collects ``efficiency = 1.0`` regardless of the budget digit count.
+# Pre-v0.3.0 values: easy=15 medium=60 hard=130.
 COMPLEXITY_IDEAL_TOKENS = {
-    "easy": 15,     # "Paris.", "100 degrees Celsius."
-    "medium": 60,   # 2-3 sentence explanations
-    "hard": 130,    # Multi-step reasoning
+    "easy": 27,     # "Paris." (1 tok) + 12 wrapper = ~13; 27 leaves room for "100 degrees Celsius."
+    "medium": 72,   # 2-3 sentence explanations + wrapper
+    "hard": 142,    # Multi-step reasoning + wrapper
 }
 
 

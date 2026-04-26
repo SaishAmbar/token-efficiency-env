@@ -21,6 +21,7 @@ import pytest
 
 from token_efficiency_env.judge import matches_keyword
 from token_efficiency_env.models import TokenEfficiencyAction
+from token_efficiency_env.scorer import score_answer
 from token_efficiency_env.server import token_efficiency_env_environment as ee
 from token_efficiency_env.server.token_efficiency_env_environment import (
     TokenEfficiencyEnvironment,
@@ -36,10 +37,16 @@ def _fresh_env(task_idx: int) -> TokenEfficiencyEnvironment:
 
 
 # ─── Indices into the canonical PROMPT_BANK in prompts.py ───────────────
-# 0 = "What is the boiling point of water in Celsius?" (easy)
-# 1 = "What is the capital of France? One word." (easy)
-TASK_BOIL = 0
-TASK_PARIS = 1
+# Looked up by prompt text so the tests can't silently drift if the bank
+# is reordered (as happened when the §7 numeric-alias migration landed).
+TASK_BOIL = next(
+    i for i, p in enumerate(ee.PROMPT_BANK)
+    if p["prompt"] == "What is the boiling point of water in Celsius?"
+)
+TASK_PARIS = next(
+    i for i, p in enumerate(ee.PROMPT_BANK)
+    if p["prompt"] == "What is the capital of France?"
+)
 
 
 # ─── Happy paths ────────────────────────────────────────────────────────
@@ -197,6 +204,136 @@ def test_overshoot_heavily_penalises_self_assessment():
 )
 def test_matches_keyword_prefix_and_numeric_policies(answer, keyword, should_match):
     assert matches_keyword(answer.lower(), keyword) is should_match
+
+
+# ─── §2 Bigram redundancy ramp (VULNERABILITY_FIX_PLAN.md §2.4) ─────────
+# The pre-v0.3.0 scorer applied the bigram penalty uniformly, so a 2-word
+# answer like "Paris, France" lost points for having exactly one repeated
+# bigram (trivially 100% of its bigrams). The ramp reintroduces the bigram
+# signal smoothly between BIGRAM_MIN_WORDS=8 and BIGRAM_FULL_WORDS=16.
+class TestBigramRamp:
+    """Parametrised over the ramp boundaries so a future tuning can't
+    silently reintroduce the short-answer penalty."""
+
+    @staticmethod
+    def _redundancy(response: str) -> float:
+        # Minimal inputs; correctness comes from KeywordJudge, bounded [0,1].
+        result = score_answer(
+            prompt="",
+            response=response,
+            allocated_budget=10,
+            tokens_used=10,
+            complexity="medium",
+            expected_keywords=[],
+        )
+        return float(result["details"]["redundancy"])
+
+    def test_two_word_concise_answer_is_not_penalised(self):
+        """'Paris, France' used to score 0.70; under the ramp it scores 1.0
+        because the bigram term is fully gated out below 8 words."""
+        assert self._redundancy("Paris, France") >= 0.99
+
+    def test_single_word_answer_unchanged(self):
+        """One-word path never looked at bigrams; still 1.0."""
+        assert self._redundancy("Yes.") >= 0.99
+
+    @pytest.mark.parametrize("word_count", [2, 5, 7])
+    def test_below_ramp_floor_ignores_bigrams(self, word_count: int):
+        """Anything below BIGRAM_MIN_WORDS (=8) should score purely on
+        unique_ratio — i.e. a non-repeating short answer must be 1.0."""
+        response = " ".join(f"word{i}" for i in range(word_count))
+        assert self._redundancy(response) >= 0.99, (
+            f"{word_count}-word non-repeating answer must not be penalised"
+        )
+
+    def test_full_ramp_penalises_obvious_padding(self):
+        """16 identical words → ramp is fully active, penalty bites hard."""
+        # 16 copies of 'the' → all 15 bigrams are ('the the'), raw_penalty=1.0
+        response = " ".join(["the"] * 16)
+        # unique_ratio = 1/16 ≈ 0.0625, full bigram penalty (ramp=1.0) → 0.0
+        # redundancy = 0.0625 * 0.7 + (1 - 1.0) * 0.3 ≈ 0.04
+        assert self._redundancy(response) < 0.1, (
+            "fully-ramped repetition must crater redundancy"
+        )
+
+    def test_ramp_is_monotone_nondecreasing_in_penalty(self):
+        """The penalty only grows as word count grows past 8. In other
+        words, for the same 'worst-case' bigram pattern, 8 words must score
+        at least as high as 12 words, which must score at least as high as
+        16 words."""
+        def rep(n: int) -> str:
+            return " ".join(["the"] * n)
+        r8 = self._redundancy(rep(8))   # ramp = 0.0
+        r12 = self._redundancy(rep(12)) # ramp ≈ 0.5
+        r16 = self._redundancy(rep(16)) # ramp = 1.0
+        assert r8 >= r12 >= r16, (
+            f"bigram ramp must be non-decreasing in word count, "
+            f"got r8={r8:.3f}, r12={r12:.3f}, r16={r16:.3f}"
+        )
+
+
+# ─── §7 Numeric keyword aliases (list-of-lists schema) ──────────────────
+# Before v0.3.0, prompts like "What is 15% of 200?" only accepted the digit
+# form '30', so a natural "thirty" answer scored 0/1 on keyword_verification.
+# The new schema lets a single keyword entry be a LIST of equivalent forms;
+# matching any form counts it once.
+class TestNumericKeywordAliases:
+    """Verifies the list-of-lists keyword schema from §7."""
+
+    @staticmethod
+    def _keyword_score(response: str, keywords) -> float:
+        result = score_answer(
+            prompt="",
+            response=response,
+            allocated_budget=10,
+            tokens_used=10,
+            complexity="easy",
+            expected_keywords=keywords,
+        )
+        return float(result["details"]["keyword_verification"])
+
+    def test_digit_form_matches_numeric_alias_group(self):
+        assert self._keyword_score(
+            "The answer is 30 percent.", [["30", "thirty"]]
+        ) == 1.0
+
+    def test_word_form_matches_numeric_alias_group(self):
+        """The previously-broken case: "thirty" alone must count the '30'
+        keyword as satisfied."""
+        assert self._keyword_score(
+            "The answer is thirty percent.", [["30", "thirty"]]
+        ) == 1.0
+
+    def test_neither_form_present_scores_zero(self):
+        assert self._keyword_score(
+            "The answer is forty percent.", [["30", "thirty"]]
+        ) == 0.0
+
+    def test_single_form_match_counts_as_one_keyword_not_two(self):
+        """Critical invariant: each alias group counts as ONE keyword in
+        the denominator, otherwise a correct single-form answer would
+        score 0.5 instead of 1.0."""
+        # 1 alias group → denominator = 1, digit match → 1/1 = 1.0
+        assert self._keyword_score("About 30%", [["30", "thirty"]]) == 1.0
+
+    def test_mixed_schema_str_and_list_both_work(self):
+        """Backwards-compatibility: a flat string keyword coexists with
+        a list-of-forms in the same prompt."""
+        score = self._keyword_score(
+            "The value is thirty units.",
+            ["unit", ["30", "thirty"]],  # both should match
+        )
+        assert score == 1.0
+
+    def test_numeric_strict_still_applies_inside_alias_group(self):
+        """The strict-numeric rule ("30" must NOT match "300") from the
+        Phase-6.5 fix must still hold inside an alias group."""
+        assert self._keyword_score(
+            "Approximately 300 units",
+            [["30", "thirty"]],
+        ) == 0.0, (
+            "strict numeric matching must still prevent 30 → 300 false positives"
+        )
 
 
 def test_photosynthesis_keywords_match_a_natural_answer():
