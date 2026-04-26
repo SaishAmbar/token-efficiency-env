@@ -10,6 +10,8 @@
 > **Don't have a local GPU?** Click the **Open In Colab** badge above to run the full GRPO training notebook on a free T4 — the first cell installs everything, prompts for your `HF_TOKEN`, and takes you straight to a runnable trainer. No local setup needed.
 
 > **Read [`ARCHITECTURE.md`](ARCHITECTURE.md) first** for the full design (data flow, reward maths, anti-hacking cliffs, statefulness gotcha, file map). This README is the friendly executive summary.
+>
+> Looking for the **reward-hacking audit trail**, the fix plan, or the hackathon self-assessment? See [`docs/audit/`](docs/audit/).
 
 ---
 
@@ -181,6 +183,8 @@ token-efficiency-env/
 ├── pytest.ini              ← test discovery config
 ├── web_dashboard.py        ← optional pretty UI (delegates to the real env)
 ├── dashboard.html
+├── docs/
+│   └── audit/              ← reward-hacking audit, fix plan, hackathon self-review
 ├── tests/
 │   ├── test_reward_invariants.py
 │   └── test_e2e_websocket.py
