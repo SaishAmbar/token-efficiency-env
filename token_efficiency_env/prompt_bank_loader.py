@@ -51,7 +51,7 @@ import logging
 import random
 import re
 import string
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -125,15 +125,20 @@ def _extract_keywords(reference_answer: str, k: int = 3) -> List[str]:
     """
     seen: set[str] = set()
     candidates: List[str] = []
-    for tok in _content_tokens(reference_answer):
+    order: Dict[str, int] = {}
+    for i, tok in enumerate(_content_tokens(reference_answer)):
         t = tok.strip(string.punctuation)
         if not t or t in seen:
             continue
         seen.add(t)
         candidates.append(t)
+        order[t] = i
     # Prefer longer tokens (stand-ins for lower IDF) and break ties by
-    # order of appearance.
-    candidates.sort(key=lambda w: (-len(w), _content_tokens(reference_answer).index(w)))
+    # order of appearance. We record the order on the fly (O(n)) instead of
+    # calling ``.index()`` inside the key (O(n²) + crashes if the stripped
+    # token isn't byte-identical to its unstripped source — e.g. tokens
+    # with surrounding apostrophes like "'hello'" strip to "hello").
+    candidates.sort(key=lambda w: (-len(w), order[w]))
     return candidates[:k]
 
 

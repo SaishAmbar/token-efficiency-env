@@ -137,6 +137,26 @@ def test_extract_keywords_handles_empty_string(loader_mod):
     assert loader_mod._extract_keywords("") == []
 
 
+def test_extract_keywords_handles_apostrophe_tokens(loader_mod):
+    """Regression — tokens that contain surrounding apostrophes used to
+    crash the sort with ``ValueError: 'X' is not in list`` because the
+    stripped candidate didn't match the unstripped source list. The fix
+    records token order on the fly instead of calling ``.index()``.
+
+    Real-world examples: ``"'quoted'"`` wrappers in dataset rows, and
+    contractions whose apostrophe the regex happens to catch at a boundary.
+    """
+    for answer in [
+        "Einstein's 'famous' theory of relativity.",
+        "The 'quick' brown fox jumps over the 'lazy' dog.",
+        "She said 'hello' to the 'stranger'.",
+    ]:
+        result = loader_mod._extract_keywords(answer, k=3)
+        assert isinstance(result, list)
+        assert all(isinstance(w, str) for w in result)
+        assert len(result) <= 3
+
+
 def test_numeric_aliases_emit_list_of_lists_for_digits(loader_mod):
     """``"30"`` must become ``["30", "thirty"]`` when num2words is
     installed; otherwise fall back to flat ``"30"``."""
