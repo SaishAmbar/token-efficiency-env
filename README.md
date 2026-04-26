@@ -9,6 +9,19 @@
 
 > **Don't have a local GPU?** Click the **Open In Colab** badge above to run the full GRPO training notebook on a free T4 — the first cell installs everything, prompts for your `HF_TOKEN`, and takes you straight to a runnable trainer. No local setup needed.
 
+---
+
+## Live resources
+
+| What | Where | Purpose |
+|---|---|---|
+| **OpenEnv Space (the env)** | <https://huggingface.co/spaces/SaishAmbar/token-efficiency-env> | The protocol-correct deliverable: a Docker Space exposing the OpenEnv WebSocket API on port 8000. Point your `EnvClient` at this URL to train against it. |
+| **Playground Space (interactive UI)** | <https://huggingface.co/spaces/SaishAmbar/token-efficiency-playground> | Light-theme browser playground — pick a question, set a budget, type an answer, see all 6 reward components fire in real time. Same scoring code path the trainer uses. |
+| **Training notebook (Colab-runnable)** | [`notebooks/train_grpo.ipynb`](notebooks/train_grpo.ipynb) · [Open in Colab](https://colab.research.google.com/github/SaishAmbar/token-efficiency-env/blob/main/notebooks/train_grpo.ipynb) | One-click GRPO training of Qwen2.5-3B on this env. Smoke preset (50 steps, ~20 min) for pipeline validation; full preset (300 steps, ~75–110 min) for the real run. |
+| **Demo video (YouTube)** | _link added on submission_ | < 2-minute voiceover walkthrough: problem → wire contract → 6-component reward → anti-hacking → training stack → what we shipped. |
+| **Architecture doc** | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Full design: data flow, reward maths, anti-hacking cliffs, statefulness gotcha, repo layout. |
+| **Self-audit** | [`docs/audit/HACKATHON_ALIGNMENT_REPORT.md`](docs/audit/HACKATHON_ALIGNMENT_REPORT.md) | End-to-end alignment check against Meta's OpenEnv hackathon brief (current score: 9.5 / 10). |
+
 > **Read [`ARCHITECTURE.md`](ARCHITECTURE.md) first** for the full design (data flow, reward maths, anti-hacking cliffs, statefulness gotcha, file map). This README is the friendly executive summary.
 >
 > Looking for the **reward-hacking audit trail**, the fix plan, or the hackathon self-assessment? See [`docs/audit/`](docs/audit/).
