@@ -119,10 +119,18 @@ class InProcessRewardAdapter:
     ``TokenEfficiencyEnvironment`` so curriculum/recent_rewards logging
     stays per-slot and doesn't interfere across rollouts.
 
-    Curriculum is mostly cosmetic during training: the trainer picks the
-    prompt itself (from ``train_prompts()``), so we override the env's
-    ``current_task`` directly before each ``step()`` and never rely on
-    ``_select_question``.
+    Curriculum is owned by the trainer during training: prompts come
+    from a stratified split (``train_prompts()``), so we override the
+    env's ``current_task`` before each ``step()`` and never rely on
+    ``_select_question``. Each env is put into ``_trainer_driven_mode``
+    on construction so ``step()`` also skips appending rewards to
+    ``recent_rewards`` — otherwise the server-side ``avg_reward_50``
+    stat would fill with numbers from prompts the env's own sampler
+    never picked, and any dashboard reading ``obs.avg_reward_50`` or
+    ``obs.phase`` would be reading noise. In trainer-driven mode those
+    two fields are intentionally pinned (``avg_reward_50=0.0``,
+    ``phase="foundation"``); the authoritative running mean lives in
+    ``RewardLog`` instead.
     """
 
     def __init__(self, num_slots: int = 1, log: Optional[RewardLog] = None) -> None:
@@ -134,9 +142,11 @@ class InProcessRewardAdapter:
         # for a new one and every appended row would land in a log nobody
         # holds a reference to. Took one test failure to find this.
         self.log = RewardLog() if log is None else log
-        self._envs: List[TokenEfficiencyEnvironment] = [
-            TokenEfficiencyEnvironment() for _ in range(num_slots)
-        ]
+        self._envs: List[TokenEfficiencyEnvironment] = []
+        for _ in range(num_slots):
+            env = TokenEfficiencyEnvironment()
+            env._trainer_driven_mode = True
+            self._envs.append(env)
         # Each slot is a single-threaded conversation with one env, but TRL
         # may call us from a worker pool; serialise per-slot access.
         self._slot_locks = [threading.Lock() for _ in range(num_slots)]

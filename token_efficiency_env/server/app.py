@@ -28,6 +28,21 @@ Usage:
     python -m server.app
 """
 
+import logging
+import os
+
+# The environment module used to call ``logging.basicConfig`` at import
+# time, which is the wrong place for library code (it clobbers any
+# caller's handler, including pytest and Colab). Configuration now lives
+# here — at the server entry point — where it's unambiguously a process
+# we own. ``force=False`` (the default) means a caller who already set
+# up logging is respected.
+logging.basicConfig(
+    level=os.environ.get("TOKEN_EFFICIENCY_LOG_LEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+
 try:
     from openenv.core.env_server.http_server import create_app
 except Exception as e:  # pragma: no cover
@@ -36,6 +51,7 @@ except Exception as e:  # pragma: no cover
     ) from e
 
 try:
+    from ..judge import judge_stats
     from ..models import TokenEfficiencyAction, TokenEfficiencyObservation
     from .token_efficiency_env_environment import TokenEfficiencyEnvironment
 except ImportError:
@@ -44,6 +60,7 @@ except ImportError:
     # top-level package" — which is what happens on HF Spaces, where the
     # module is loaded as ``server.app`` instead of
     # ``token_efficiency_env.server.app``.
+    from judge import judge_stats
     from models import TokenEfficiencyAction, TokenEfficiencyObservation
     from server.token_efficiency_env_environment import TokenEfficiencyEnvironment
 
@@ -66,6 +83,29 @@ app = create_app(
     # each at max_concurrent_envs=1, and let the trainer load-balance.
     max_concurrent_envs=1,
 )
+
+
+@app.get("/judge_stats", tags=["introspection"])
+def read_judge_stats() -> dict:
+    """Return a JSON snapshot of the process-level judge's health.
+
+    Shape::
+        {"backend": "HFInferenceJudge" | "KeywordJudge" | "uninitialised",
+         "calls": int, "failures": int, "failure_rate": float,
+         "model": "meta-llama/..." (only for HF backend)}
+
+    Useful for two things:
+      1. Operator dashboards — detect the HF judge silently degrading to
+         keyword scoring (``failure_rate`` rises while training continues).
+      2. Pre-training sanity check — curl this endpoint right after
+         deploy to confirm the Space has ``HF_TOKEN`` set and the
+         intended backend is active.
+
+    This endpoint is additive to whatever ``/health`` OpenEnv's
+    ``create_app`` already exposes; it never forces the judge to
+    initialise (reads the module-level singleton as-is).
+    """
+    return judge_stats()
 
 
 def main(host: str = "0.0.0.0", port: int = 8000):

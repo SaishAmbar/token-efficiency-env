@@ -69,7 +69,7 @@ Two LLMs in the loop (don't confuse them):
 | # | Component | Weight | What it measures |
 |---|---|---:|---|
 | 1 | **correctness** | 0.55 | LLM judge in `{0.0, 0.3, 0.7, 1.0}`. Falls back to keyword overlap on judge errors. |
-| 2 | **efficiency** | 0.15 | `tokens_used` vs an *absolute* per-complexity ideal (easy=15, medium=60, hard=130). Caps at 1.0; declines past the ideal. |
+| 2 | **efficiency** | 0.15 | `tokens_used` vs an *absolute* per-complexity ideal (easy=27, medium=72, hard=142 — bumped in v0.3.0 to absorb the 10–12 wrapper tokens now being priced). Caps at 1.0; declines past the ideal. |
 | 3 | **self_assessment** | 0.15 | Asymmetric — mild penalty for slack, steep penalty for overshoot. Trains *honest upper-bound* prediction. |
 | 4 | **redundancy** | 0.05 | `1 - repeated_word_ratio`. Catches "Paris Paris Paris…". |
 | 5 | **keyword_verification** | 0.05 | Pure-Python keyword overlap. A sanity floor against judge hallucinations. |
@@ -177,30 +177,59 @@ pytest tests/                  # fast unit suite, no server / token needed
 
 ```
 token-efficiency-env/
-├── ARCHITECTURE.md         ← read this first (canonical design)
-├── README.md               ← you are here
-├── CHANGELOG.md            ← release history + design rationale
-├── pytest.ini              ← test discovery config
-├── web_dashboard.py        ← optional pretty UI (delegates to the real env)
+├── ARCHITECTURE.md             ← read this first (canonical design)
+├── README.md                   ← you are here
+├── CHANGELOG.md                ← release history + design rationale
+├── pytest.ini                  ← test discovery config
+├── requirements-train.txt      ← trl / peft / accelerate / datasets / num2words
+├── web_dashboard.py            ← optional local Gradio UI (delegates to the real env)
 ├── dashboard.html
 ├── docs/
-│   └── audit/              ← reward-hacking audit, fix plan, hackathon self-review
-├── tests/
+│   └── audit/                  ← reward-hacking audit, fix plan, hackathon self-review
+├── deploy/
+│   ├── push_to_hf_space.py     ← HfApi-based deploy (no openenv CLI needed)
+│   ├── SPACE_README.md         ← judge-facing README served on the Space landing page
+│   └── README.md               ← operator guide
+├── notebooks/
+│   ├── train_grpo.ipynb        ← Colab-ready GRPO training notebook (SFT warmup → GRPO → eval)
+│   └── eval_baseline_vs_trained.py
+├── training/
+│   ├── config.py               ← TrainingConfig (smoke + full presets)
+│   ├── prompts_split.py        ← stratified 85/10/5 train/holdout/probe
+│   ├── reward_adapter.py       ← InProcessRewardAdapter (default) + WSRewardAdapter
+│   ├── sft_format_data.py      ← 50-example SFT format warmup
+│   ├── server_pool.py          ← spawn/teardown N uvicorn workers for WS backend
+│   ├── colab_bootstrap.py      ← is_colab() + bootstrap() for the notebook cell 0
+│   └── compare_report.py       ← before/after markdown + plots
+├── scripts/
+│   ├── demo_session.py         ← scripted baseline demo against local or live Space
+│   ├── smoke_prompt_bank.py    ← one-command loader smoke for the 2.3k bank
+│   └── smoke_compare_report.py ← regenerate the report from synthetic data (no GPU)
+├── tests/                      ← 147 passing, 7 skipped (WebSocket e2e)
 │   ├── test_reward_invariants.py
+│   ├── test_anti_cliff.py       ← CoT-exploit rejection, parrot Jaccard, redundancy ramp
+│   ├── test_prompt_bank_loader.py
+│   ├── test_training_scaffold.py
+│   ├── test_sft_format_data.py
+│   ├── test_compare_report.py
+│   ├── test_colab_bootstrap.py
+│   ├── test_space_deploy_config.py
+│   ├── test_demo_session.py
 │   └── test_e2e_websocket.py
 └── token_efficiency_env/
-    ├── README.md           ← in-package contributor guide
+    ├── README.md               ← in-package contributor guide
     ├── pyproject.toml
     ├── openenv.yaml
-    ├── prompts.py          ← 24 hand-curated questions
-    ├── scorer.py           ← 6-component reward
-    ├── judge.py            ← HuggingFace + keyword judges
-    ├── models.py           ← Pydantic schemas
-    ├── client.py           ← WebSocket client (use this)
+    ├── prompts.py              ← 24 starter prompts + lazy loader dispatch
+    ├── prompt_bank_loader.py   ← 2.3k programmatic bank (GSM8K + TriviaQA + ARC + OpenOrca)
+    ├── scorer.py               ← 6-component reward
+    ├── judge.py                ← HuggingFace + keyword judges
+    ├── models.py               ← Pydantic schemas (incl. answer_token_count diagnostic)
+    ├── client.py               ← WebSocket client (use this in trainers)
     └── server/
         ├── app.py
         ├── token_efficiency_env_environment.py   ← THE ENVIRONMENT
-        ├── Dockerfile      ← used by HF Spaces deploy (Phase 5, deferred)
+        ├── Dockerfile          ← used by HF Spaces deploy
         └── requirements.txt
 ```
 
@@ -208,15 +237,27 @@ token-efficiency-env/
 
 ## Roadmap
 
+All implementation phases from the original plan are complete. The
+remaining open items are operational (full-scale GRPO run) and
+documentation (save-path guidance), tracked in
+[`docs/audit/HACKATHON_ALIGNMENT_REPORT.md`](docs/audit/HACKATHON_ALIGNMENT_REPORT.md) §24.
+
 - ✅ Phase 1 — OpenEnv-shaped environment + schemas
 - ✅ Phase 2 — HuggingFace Inference judge + keyword fallback
-- ✅ Phase 3 — Reward redesign (6 components, asymmetric self-assessment, absolute efficiency) + new anti-hacking cliffs
+- ✅ Phase 3 — Reward redesign (6 components, asymmetric self-assessment, absolute efficiency) + anti-hacking cliffs
 - ✅ Phase 4 — Local end-to-end verification
-- ✅ Phase 6 — Docs & tests cleanup *(this release)*
-- ⏳ Phase 7 — Training notebook scaffold (TRL `GRPOTrainer` + Qwen2.5-3B + N parallel env servers)
-- ⏳ Phase 5 — Deploy as a HuggingFace Space (deferred to last)
+- ✅ Phase 5 — Deploy as a HuggingFace Space (`deploy/push_to_hf_space.py` + live Space)
+- ✅ Phase 6 — Docs & tests cleanup
+- ✅ Phase 7 — Training notebook scaffold (TRL `GRPOTrainer` + Qwen2.5-3B + LoRA + held-out eval)
+- ✅ Phase 8 — Programmatic 2.3k-prompt bank (GSM8K + TriviaQA + ARC + OpenOrca) + stratified split + SFT warmup + smoke preset + Colab bootstrap
+- ✅ v0.3.0 — Hidden-CoT loophole closed (strict `SHELL_RE` parser, raw-response token pricing, `answer_token_count` diagnostic)
 
-See [`CHANGELOG.md`](CHANGELOG.md) for what landed in each phase.
+**Open, non-blocking:**
+- ⏳ 300-step full GRPO run on Colab (50-step smoke is shipped).
+- ⏳ Mid-training sampling callback (print N rollouts every K steps).
+- ⏳ Judge adversarial stress-test suite.
+
+See [`CHANGELOG.md`](CHANGELOG.md) for what landed in each release.
 
 ---
 

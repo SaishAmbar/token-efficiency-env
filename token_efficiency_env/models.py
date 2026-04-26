@@ -13,7 +13,7 @@ Observation:
     episode_token_limit:  Hard upper bound on the budget the model may allocate.
     answer:               Parsed answer text (populated after step()).
     allocated_budget:     Budget the model self-allocated (clamped to [1, 200]).
-    tokens_used:          Actual token count of the answer.
+    tokens_used:          Token count of the full raw response (v0.3.0 Layer A).
     complexity:           "easy" | "medium" | "hard".
     phase:                Curriculum phase name.
     episode:              Episode index.
@@ -21,6 +21,9 @@ Observation:
     reward_components:    Per-component score breakdown from the 6-component scorer.
     error:                Non-empty short tag when an anti-hacking guard tripped:
                           "bad_format", "empty", "parrot", "repetition", "too_long".
+    answer_token_count:   Token count of the inner answer only. Diagnostic, does
+                          NOT feed back into the reward. Use this for dashboards
+                          that need to display inner-vs-total budget breakdown.
 """
 
 from typing import Dict, Optional
@@ -73,7 +76,12 @@ class TokenEfficiencyObservation(Observation):
     )
     tokens_used: int = Field(
         default=0,
-        description="Actual token count of the parsed answer.",
+        description=(
+            "Token count of the full raw response (v0.3.0 Layer A of the "
+            "hidden-CoT fix — includes wrapper tokens and any reasoning "
+            "the model tried to leak outside the tags). For the "
+            "inner-answer-only count see ``answer_token_count``."
+        ),
     )
     complexity: str = Field(
         default="",

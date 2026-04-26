@@ -38,12 +38,19 @@ except ImportError:  # pragma: no cover — exercised only at container start
 
 
 # ─── Logging ────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=os.environ.get("TOKEN_EFFICIENCY_LOG_LEVEL", "INFO"),
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%H:%M:%S",
-)
+# Library-friendly: DO NOT call ``logging.basicConfig`` here — doing so at
+# import time rewires the root logger and can clobber a caller's log
+# formatter (Colab, pytest, FastAPI uvicorn, any app embedding the env).
+# The server entry point ``token_efficiency_env/server/app.py`` and the
+# Colab notebook are the right places to configure logging for the
+# running process. We only grab a named logger here.
 logger = logging.getLogger("TokenEfficiencyEnv")
+# Respect TOKEN_EFFICIENCY_LOG_LEVEL when it's set, but don't force a
+# handler on the root logger; if no handler is configured the caller
+# sees our log records propagate through whatever they've set up.
+_env_level = os.environ.get("TOKEN_EFFICIENCY_LOG_LEVEL")
+if _env_level:
+    logger.setLevel(_env_level)
 
 
 # ─── Constants ──────────────────────────────────────────────────────────
@@ -172,6 +179,14 @@ class TokenEfficiencyEnvironment(Environment):
         self.current_phase = 0
         self.recent_rewards: deque[float] = deque(maxlen=REWARD_WINDOW)
         self.current_task: Optional[dict] = None
+        # When True, step() skips the side-effects that drive the env's
+        # own curriculum (appending to recent_rewards). Set this when the
+        # trainer owns prompt selection (see training/reward_adapter.py)
+        # so the server-side "avg_reward_50" stat doesn't fill with
+        # numbers from prompts the env's sampler never picked. Default
+        # False for the server path (WS / HF Space) where the env IS the
+        # curriculum.
+        self._trainer_driven_mode: bool = False
 
         self._prompt_pools = {
             "easy": [p for p in PROMPT_BANK if p["complexity"] == "easy"],
@@ -365,7 +380,8 @@ class TokenEfficiencyEnvironment(Environment):
         details = {k: float(v) for k, v in score_result["details"].items()}
 
         elapsed = time.time() - start_time
-        self.recent_rewards.append(reward)
+        if not self._trainer_driven_mode:
+            self.recent_rewards.append(reward)
 
         logger.info(
             "Episode %d | reward=%.4f | avg=%.4f | budget=%d | used=%d "
@@ -412,7 +428,8 @@ class TokenEfficiencyEnvironment(Environment):
         tokens_used: int = 0,
     ) -> TokenEfficiencyObservation:
         """Build a terminal failure observation and update curriculum state."""
-        self.recent_rewards.append(reward)
+        if not self._trainer_driven_mode:
+            self.recent_rewards.append(reward)
         logger.warning(
             "Episode %d | %s | reward=%.2f", self.episode_count, log_msg, reward
         )

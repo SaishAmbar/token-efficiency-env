@@ -62,6 +62,7 @@ class TokenEfficiencyEnv(
             avg_reward_50=obs_data.get("avg_reward_50", 0.0),
             reward_components=obs_data.get("reward_components", {}) or {},
             error=obs_data.get("error", ""),
+            answer_token_count=obs_data.get("answer_token_count"),
             done=done,
             reward=reward,
         )

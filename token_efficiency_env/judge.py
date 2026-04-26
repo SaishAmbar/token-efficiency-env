@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Optional, Protocol
+from typing import Any, Dict, Optional, Protocol
 
 logger = logging.getLogger("TokenEfficiencyEnv.judge")
 
@@ -40,12 +40,24 @@ DEFAULT_JUDGE_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
 class Judge(Protocol):
     """Protocol: scores answer correctness on the closed interval [0.0, 1.0]."""
 
+    name: str
+
     def score_correctness(
         self,
         prompt: str,
         answer: str,
         expected_keywords: Optional[list[str]] = None,
     ) -> float: ...
+
+    def stats(self) -> Dict[str, Any]:
+        """Return a small, JSON-serialisable health snapshot.
+
+        At minimum: ``{"backend": <class name>, "calls": int,
+        "failures": int, "failure_rate": float}``. Exposed via the
+        server's ``/health`` endpoint so operators can tell whether the
+        LLM judge is silently degrading to the keyword fallback.
+        """
+        ...
 
 
 # ─── Shared keyword scoring (used by KeywordJudge, HF fallback, and scorer.py) ───
@@ -102,13 +114,27 @@ class KeywordJudge:
 
     name = "KeywordJudge"
 
+    def __init__(self) -> None:
+        self._calls = 0
+
     def score_correctness(
         self,
         prompt: str,
         answer: str,
         expected_keywords: Optional[list[str]] = None,
     ) -> float:
+        self._calls += 1
         return _keyword_score(answer, expected_keywords or [])
+
+    def stats(self) -> Dict[str, Any]:
+        # Keyword judge has no network failure mode, so failure_rate is
+        # always 0.0 — but we still expose the shape for consistency.
+        return {
+            "backend": self.name,
+            "calls": self._calls,
+            "failures": 0,
+            "failure_rate": 0.0,
+        }
 
 
 # ─── HFInferenceJudge — LLM judge via HF Inference Providers ────────────
@@ -147,22 +173,33 @@ _JUDGE_PROMPT_NO_KEYS = (
 def _parse_score(text: str) -> Optional[float]:
     """Pull a [0,1] score out of the judge's reply.
 
-    Strategy: look for ``Score: <number>`` first (matches our prompt format).
-    Fall back to the LAST decimal number with a leading ``0.`` or ``1.`` (the
-    grade is almost always at the end of the reply, never the start where the
-    model might restate facts from the question).
+    Strategy:
+      1. Look for ``Score: <number>`` first (matches our prompt format).
+      2. Fall back to the LAST decimal number with a leading ``0.`` or
+         ``1.`` — grades almost always appear at the end of the reply.
+
+    **Any number outside [0, 1] is treated as a parse failure, NOT
+    silently clamped.** The old behaviour — clamp then return — made
+    replies like "Score: 7" (the judge forgot the rubric and used a
+    /10 scale) resolve to 1.0, which is a quiet reward-hacking surface:
+    a trainee can nudge the judge toward X/10 phrasing and collect free
+    perfect-correctness rewards. Returning ``None`` here makes the
+    caller fall through to the deterministic keyword score for that
+    call instead.
     """
     if not text:
         return None
-    m = re.search(r"[Ss]core\s*[:=]\s*(\d+\.?\d*)", text)
+    # Capture an optional leading sign too — otherwise "Score: -0.5"
+    # silently strips the minus and returns 0.5, which is the same
+    # sign-discarding bug as the old clamp-then-return behaviour.
+    m = re.search(r"[Ss]core\s*[:=]\s*(-?\d+\.?\d*)", text)
     if m:
-        return float(m.group(1))
+        value = float(m.group(1))
+        return value if 0.0 <= value <= 1.0 else None
     candidates = re.findall(r"\b([01](?:\.\d+)?)\b", text)
     if candidates:
-        return float(candidates[-1])
-    m = re.search(r"\d+\.?\d*", text)
-    if m:
-        return float(m.group())
+        value = float(candidates[-1])
+        return value if 0.0 <= value <= 1.0 else None
     return None
 
 
@@ -195,6 +232,15 @@ class HFInferenceJudge:
         if self._calls == 0:
             return 0.0
         return self._failures / self._calls
+
+    def stats(self) -> Dict[str, Any]:
+        return {
+            "backend": self.name,
+            "model": self.model,
+            "calls": self._calls,
+            "failures": self._failures,
+            "failure_rate": round(self.failure_rate, 4),
+        }
 
     def _get_client(self):
         if self._client is None:
@@ -302,3 +348,22 @@ def reset_judge() -> None:
     """Clear the cached judge instance. Intended for tests only."""
     global _JUDGE
     _JUDGE = None
+
+
+def judge_stats() -> Dict[str, Any]:
+    """Return a health snapshot of the process-level judge.
+
+    Returns ``{"backend": "uninitialised", ...}`` if the judge has not
+    been constructed yet, so the caller (e.g. FastAPI ``/health``)
+    doesn't accidentally force a potentially-failing network call just
+    by asking for stats.
+    """
+    global _JUDGE
+    if _JUDGE is None:
+        return {
+            "backend": "uninitialised",
+            "calls": 0,
+            "failures": 0,
+            "failure_rate": 0.0,
+        }
+    return _JUDGE.stats()
