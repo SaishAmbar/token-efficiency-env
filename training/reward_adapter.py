@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from token_efficiency_env.models import TokenEfficiencyAction
-from token_efficiency_env.prompts import PROMPT_BANK
+from token_efficiency_env.prompts import get_prompt_bank
 from token_efficiency_env.server.token_efficiency_env_environment import (
     TokenEfficiencyEnvironment,
 )
@@ -47,18 +47,39 @@ from token_efficiency_env.server.token_efficiency_env_environment import (
 logger = logging.getLogger("token_efficiency_env.reward_adapter")
 
 # ─── Prompt → task lookup ──────────────────────────────────────────────
-# Built once at import. The reward function gets the raw prompt string
-# back from TRL, not the index, so we need O(1) lookup.
-_PROMPT_TO_TASK: Dict[str, Dict[str, Any]] = {p["prompt"]: p for p in PROMPT_BANK}
+# We build the lookup dict lazily from get_prompt_bank() rather than
+# from the module-level PROMPT_BANK constant. This matters when the
+# caller sets PROMPT_BANK_MODE=full (the 2.3k-prompt bank): at import
+# time the lazy loader hasn't run yet, so a module-level dict built from
+# PROMPT_BANK would only contain the 24 starter prompts, causing every
+# full-bank prompt to be logged as "unknown" and scored 0.0.
+_PROMPT_TO_TASK_CACHE: Optional[Dict[str, Dict[str, Any]]] = None
+_PROMPT_TO_TASK_CACHE_LOCK = threading.Lock()
+
+
+def _build_prompt_lookup() -> Dict[str, Dict[str, Any]]:
+    """Build (or return cached) prompt→task lookup for the active bank."""
+    global _PROMPT_TO_TASK_CACHE
+    with _PROMPT_TO_TASK_CACHE_LOCK:
+        if _PROMPT_TO_TASK_CACHE is None:
+            _PROMPT_TO_TASK_CACHE = {p["prompt"]: p for p in get_prompt_bank()}
+        return _PROMPT_TO_TASK_CACHE
+
+
+def _invalidate_prompt_lookup() -> None:
+    """Call this if the bank mode changes at runtime (e.g. in tests)."""
+    global _PROMPT_TO_TASK_CACHE
+    with _PROMPT_TO_TASK_CACHE_LOCK:
+        _PROMPT_TO_TASK_CACHE = None
 
 
 def _task_for_prompt(prompt: str) -> Optional[Dict[str, Any]]:
-    """Return the PROMPT_BANK entry whose ``prompt`` matches exactly.
+    """Return the active bank entry whose ``prompt`` matches exactly.
 
-    Returns None if there's no match (caller decides whether that's fatal
-    or just gets a 0.0 reward).
+    Respects ``PROMPT_BANK_MODE`` (starter vs full). Returns None if
+    there's no match (caller decides whether that's fatal or gets 0.0).
     """
-    return _PROMPT_TO_TASK.get(prompt)
+    return _build_prompt_lookup().get(prompt)
 
 
 # ─── Per-step log row ──────────────────────────────────────────────────
@@ -140,6 +161,7 @@ class InProcessRewardAdapter:
             self.log.append(
                 prompt=prompt, completion=completion, reward=0.0,
                 components={}, error="unknown_prompt",
+                tokens_used=0, allocated_budget=0, complexity="", slot=-1,
             )
             return 0.0
 
@@ -244,6 +266,11 @@ class WSRewardAdapter:
         task = _task_for_prompt(prompt)
         if task is None:
             logger.warning("Unknown prompt fed to WS reward adapter: %r", prompt[:80])
+            self.log.append(
+                prompt=prompt, completion=completion, reward=0.0,
+                components={}, error="unknown_prompt",
+                tokens_used=0, allocated_budget=0, complexity="", slot=-1,
+            )
             return 0.0
 
         slot = self._claim_slot()

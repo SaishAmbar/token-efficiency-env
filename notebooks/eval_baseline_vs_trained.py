@@ -153,9 +153,7 @@ def evaluate(
             tokens_used=int(first.get("tokens_used", 0) or 0),
             allocated_budget=int(first.get("allocated_budget", 0) or 0),
             overshoot=(
-                first.get("tokens_used", 0) is not None
-                and first.get("allocated_budget", 0) is not None
-                and first["tokens_used"] > first["allocated_budget"]
+                first.get("tokens_used", 0) > first.get("allocated_budget", 0)
             ),
             error=first.get("error", ""),
             components=components,
