@@ -6,77 +6,229 @@
 <title>TokenEfficiencyEnv Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+/* ─── Tokens ─────────────────────────────────────────────────────────── */
+:root{
+  --bg:#FFFFFF;
+  --bg-soft:#FFF6F2;
+  --bg-softer:#FFFAF7;
+  --accent:#FFB38A;
+  --accent-strong:#F89868;
+  --accent-soft:#FFE3D2;
+  --border:#E5E7EB;
+  --border-soft:#F1F3F5;
+  --text:#1F2937;
+  --text-muted:#6B7280;
+  --text-faint:#9CA3AF;
+  --good:#16A34A;
+  --warn:#D97706;
+  --bad:#DC2626;
+  --shadow-sm:0 1px 2px rgba(31,41,55,.04);
+  --shadow:0 4px 12px rgba(31,41,55,.06);
+  --shadow-md:0 8px 24px rgba(248,152,104,.10);
+  --radius:14px;
+  --radius-sm:10px;
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter',sans-serif;background:#0a0a1a;color:#e0e0e0;min-height:100vh}
-.header{background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);padding:20px 30px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:16px}
-.header h1{font-size:22px;font-weight:800;background:linear-gradient(90deg,#00d2ff,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.header .badge{font-size:11px;background:rgba(0,210,255,.15);color:#00d2ff;padding:4px 10px;border-radius:20px;border:1px solid rgba(0,210,255,.3)}
-.tabs{display:flex;gap:4px;padding:12px 30px;background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.06)}
-.tab{padding:8px 20px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:#888;transition:.2s}
-.tab:hover{color:#ccc;background:rgba(255,255,255,.05)}
-.tab.active{color:#00d2ff;background:rgba(0,210,255,.1);border:1px solid rgba(0,210,255,.2)}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.5}
+
+/* ─── Header & tabs ───────────────────────────────────────────────────── */
+.header{
+  background:linear-gradient(135deg,#FFFFFF 0%,#FFF6F2 100%);
+  padding:22px 30px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:16px;
+}
+.header h1{
+  font-size:22px;font-weight:800;color:var(--text);
+  display:flex;align-items:center;gap:10px;
+}
+.header h1 .logo{
+  width:32px;height:32px;border-radius:9px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-strong));
+  display:inline-flex;align-items:center;justify-content:center;
+  color:#fff;font-size:16px;
+}
+.badge{
+  font-size:11px;background:var(--accent-soft);color:var(--accent-strong);
+  padding:4px 10px;border-radius:20px;border:1px solid var(--accent);
+  font-weight:600;letter-spacing:.2px;
+}
+.tabs{
+  display:flex;gap:6px;padding:14px 30px;background:var(--bg);
+  border-bottom:1px solid var(--border);
+}
+.tab{
+  padding:8px 18px;border-radius:10px;cursor:pointer;
+  font-size:13px;font-weight:600;color:var(--text-muted);
+  transition:.15s ease;border:1px solid transparent;
+}
+.tab:hover{color:var(--text);background:var(--bg-soft)}
+.tab.active{
+  color:var(--accent-strong);background:var(--accent-soft);
+  border-color:var(--accent);
+}
+
+/* ─── Layout & cards ──────────────────────────────────────────────────── */
 .content{max-width:1100px;margin:0 auto;padding:24px}
 .panel{display:none}.panel.active{display:block}
-.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:22px;margin-bottom:18px;backdrop-filter:blur(10px)}
-.card h3{font-size:14px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
-.question-box{font-size:18px;font-weight:600;color:#fff;padding:16px;background:rgba(123,47,247,.1);border:1px solid rgba(123,47,247,.25);border-radius:10px;margin-bottom:14px}
-.complexity-badge{display:inline-block;font-size:11px;padding:3px 10px;border-radius:12px;font-weight:700;margin-left:10px}
-.complexity-badge.easy{background:rgba(0,200,83,.15);color:#00c853}
-.complexity-badge.medium{background:rgba(255,171,0,.15);color:#ffab00}
-.complexity-badge.hard{background:rgba(255,61,87,.15);color:#ff3d57}
-textarea{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:14px;color:#fff;font-family:'Inter',monospace;font-size:14px;resize:vertical;min-height:80px}
-textarea:focus{outline:none;border-color:#7b2ff7}
-.btn{padding:10px 24px;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;transition:.2s}
-.btn-primary{background:linear-gradient(135deg,#7b2ff7,#00d2ff);color:#fff}
-.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(123,47,247,.4)}
-.btn-secondary{background:rgba(255,255,255,.08);color:#ccc;border:1px solid rgba(255,255,255,.12)}
-.btn-secondary:hover{background:rgba(255,255,255,.12)}
-.btn-row{display:flex;gap:10px;margin:14px 0}
+.card{
+  background:#FFFFFF;border:1px solid var(--border);
+  border-radius:var(--radius);padding:22px;margin-bottom:18px;
+  box-shadow:var(--shadow-sm);
+}
+.card h3{
+  font-size:12px;font-weight:700;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px;
+}
+.question-box{
+  font-size:18px;font-weight:600;color:var(--text);
+  padding:18px;background:var(--bg-soft);
+  border:1px solid var(--accent-soft);border-radius:var(--radius-sm);
+  margin-bottom:14px;
+}
+.complexity-badge{
+  display:inline-block;font-size:11px;padding:3px 10px;
+  border-radius:12px;font-weight:700;margin-left:10px;
+}
+.complexity-badge.easy{background:#E6F7EE;color:var(--good)}
+.complexity-badge.medium{background:#FEF3C7;color:var(--warn)}
+.complexity-badge.hard{background:#FEE2E2;color:var(--bad)}
+
+/* ─── Inputs ──────────────────────────────────────────────────────────── */
+.field-row{display:grid;grid-template-columns:160px 1fr;gap:14px;align-items:start}
+@media (max-width:640px){.field-row{grid-template-columns:1fr}}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{
+  font-size:12px;font-weight:600;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:.6px;
+}
+.input,textarea{
+  width:100%;background:#FFFFFF;border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:12px 14px;
+  color:var(--text);font-family:'Inter',sans-serif;font-size:14px;
+  transition:.15s ease;outline:none;
+}
+textarea{resize:vertical;min-height:88px;line-height:1.55}
+.input:focus,textarea:focus{
+  border-color:var(--accent-strong);
+  box-shadow:0 0 0 3px var(--accent-soft);
+}
+.input.invalid{border-color:var(--bad);background:#FFF5F5}
+.helper{
+  font-size:12px;color:var(--text-faint);margin-top:6px;
+  display:flex;align-items:center;gap:6px;
+}
+.helper.error{color:var(--bad)}
+
+/* ─── Buttons ─────────────────────────────────────────────────────────── */
+.btn{
+  padding:10px 22px;border:none;border-radius:10px;
+  font-weight:600;font-size:13px;cursor:pointer;
+  transition:.15s ease;font-family:inherit;
+}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{
+  background:linear-gradient(135deg,var(--accent),var(--accent-strong));
+  color:#FFFFFF;box-shadow:var(--shadow-sm);
+}
+.btn-primary:not(:disabled):hover{
+  background:linear-gradient(135deg,var(--accent-strong),#EC8550);
+  box-shadow:var(--shadow-md);transform:translateY(-1px);
+}
+.btn-secondary{
+  background:#FFFFFF;color:var(--text);border:1px solid var(--border);
+}
+.btn-secondary:hover{background:var(--bg-soft);border-color:var(--accent)}
+.btn-row{display:flex;gap:10px;margin:14px 0;flex-wrap:wrap}
+
+/* ─── Results / scores ────────────────────────────────────────────────── */
 .score-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.score-item{display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.03);border-radius:8px}
-.score-item .label{font-size:12px;color:#999;width:130px;flex-shrink:0}
-.score-item .bar-bg{flex:1;height:8px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden}
+@media (max-width:640px){.score-grid{grid-template-columns:1fr}}
+.score-item{
+  display:flex;align-items:center;gap:10px;
+  padding:12px;background:var(--bg-softer);
+  border:1px solid var(--border-soft);border-radius:10px;
+}
+.score-item .label{font-size:12px;color:var(--text-muted);width:140px;flex-shrink:0;font-weight:500}
+.score-item .bar-bg{flex:1;height:8px;background:var(--border-soft);border-radius:4px;overflow:hidden}
 .score-item .bar-fill{height:100%;border-radius:4px;transition:width .6s ease}
-.score-item .val{font-size:13px;font-weight:700;width:40px;text-align:right}
-.reward-big{text-align:center;padding:20px;font-size:48px;font-weight:800;background:linear-gradient(135deg,#7b2ff7,#00d2ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.reward-label{text-align:center;font-size:12px;color:#888;margin-top:4px}
-.error-box{background:rgba(255,61,87,.1);border:1px solid rgba(255,61,87,.3);color:#ff6b7a;padding:14px;border-radius:10px;font-size:14px}
-.info-row{display:flex;gap:20px;flex-wrap:wrap;margin-top:10px}
-.info-chip{font-size:12px;color:#aaa;background:rgba(255,255,255,.05);padding:4px 12px;border-radius:6px}
-.chart-container{position:relative;height:280px;background:rgba(255,255,255,.02);border-radius:10px;border:1px solid rgba(255,255,255,.06);overflow:hidden}
+.score-item .val{font-size:13px;font-weight:700;width:42px;text-align:right}
+.reward-big{
+  text-align:center;padding:18px;font-size:48px;font-weight:800;
+  background:linear-gradient(135deg,var(--accent-strong),var(--accent));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.reward-label{text-align:center;font-size:12px;color:var(--text-muted);margin-top:-4px}
+.error-box{
+  background:#FFF5F5;border:1px solid #FECACA;color:var(--bad);
+  padding:14px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;
+}
+.info-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.info-chip{
+  font-size:12px;color:var(--text);background:var(--bg-soft);
+  padding:5px 12px;border-radius:6px;border:1px solid var(--border-soft);
+  font-weight:500;
+}
+
+/* ─── Charts / training panel ─────────────────────────────────────────── */
+.chart-container{
+  position:relative;height:280px;background:var(--bg-softer);
+  border-radius:var(--radius-sm);border:1px solid var(--border-soft);
+  overflow:hidden;
+}
 canvas{width:100%!important;height:100%!important}
 .sim-controls{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
-.sim-controls input{width:80px;padding:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:6px;color:#fff;font-size:14px;text-align:center}
-.sim-controls label{font-size:13px;color:#aaa}
+.sim-controls label{font-size:13px;color:var(--text-muted);font-weight:500}
+.sim-controls input[type=number]{
+  width:90px;padding:8px 10px;background:#FFFFFF;
+  border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-size:14px;text-align:center;
+}
 .phase-indicator{display:flex;gap:6px;margin:10px 0}
-.phase-dot{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.08)}
-.phase-dot.active{background:linear-gradient(90deg,#7b2ff7,#00d2ff)}
-.phase-dot.done{background:#00c853}
-.log-feed{max-height:250px;overflow-y:auto;font-size:12px;font-family:monospace;background:rgba(0,0,0,.3);border-radius:8px;padding:12px}
+.phase-dot{flex:1;height:6px;border-radius:3px;background:var(--border-soft)}
+.phase-dot.active{background:linear-gradient(90deg,var(--accent),var(--accent-strong))}
+.phase-dot.done{background:var(--good)}
+.log-feed{
+  max-height:250px;overflow-y:auto;font-size:12px;
+  font-family:'JetBrains Mono','Menlo',monospace;
+  background:var(--bg-softer);border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);padding:12px;
+}
 .log-feed::-webkit-scrollbar{width:6px}
-.log-feed::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
-.log-line{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03)}
-.log-line .ep{color:#7b2ff7}.log-line .rw{font-weight:700}
+.log-feed::-webkit-scrollbar-thumb{background:var(--accent-soft);border-radius:3px}
+.log-line{padding:3px 0;border-bottom:1px solid var(--border-soft);color:var(--text)}
+.log-line .ep{color:var(--accent-strong);font-weight:700}
+.log-line .rw{font-weight:700}
+
+/* ─── Stat strip ──────────────────────────────────────────────────────── */
 .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
-.stat-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:16px;text-align:center}
-.stat-card .num{font-size:28px;font-weight:800;background:linear-gradient(135deg,#00d2ff,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.stat-card .lbl{font-size:11px;color:#888;margin-top:4px}
-.hint{font-size:12px;color:#666;margin-top:6px;font-style:italic}
-.format-helper{font-size:12px;color:#7b2ff7;cursor:pointer;margin-top:6px}
-.format-helper:hover{text-decoration:underline}
+@media (max-width:640px){.stats-row{grid-template-columns:repeat(2,1fr)}}
+.stat-card{
+  background:#FFFFFF;border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:16px;text-align:center;
+  box-shadow:var(--shadow-sm);
+}
+.stat-card .num{
+  font-size:28px;font-weight:800;
+  background:linear-gradient(135deg,var(--accent-strong),var(--accent));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.stat-card .lbl{font-size:11px;color:var(--text-muted);margin-top:4px;font-weight:500}
+
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .fade-in{animation:fadeIn .4s ease}
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>🎯 TokenEfficiencyEnv</h1>
+  <h1><span class="logo">⚡</span> TokenEfficiencyEnv</h1>
   <span class="badge">LIVE ENVIRONMENT</span>
   <span class="badge" id="phaseLabel">Phase 1: Easy Only</span>
 </div>
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('interactive')">🎮 Interactive Mode</div>
-  <div class="tab" onclick="switchTab('training')">🧠 Training Simulation</div>
+  <div class="tab active" onclick="switchTab('interactive')">Interactive Mode</div>
+  <div class="tab" onclick="switchTab('training')">Training Simulation</div>
 </div>
 
 <!-- INTERACTIVE -->
@@ -88,25 +240,53 @@ canvas{width:100%!important;height:100%!important}
     <div class="stat-card"><div class="num" id="sAvg">—</div><div class="lbl">Avg Reward</div></div>
     <div class="stat-card"><div class="num" id="sLast">—</div><div class="lbl">Last Reward</div></div>
   </div>
+
   <div class="card">
     <h3>Current Question</h3>
     <div class="question-box" id="questionBox">Click "New Question" to start</div>
     <div class="info-row" id="kwRow"></div>
     <div class="btn-row">
-      <button class="btn btn-primary" onclick="newQuestion()">🔄 New Question</button>
-      <select id="qSelect" onchange="newQuestion()" class="btn btn-secondary" style="padding:8px 12px;font-size:13px;background:#1a1a2e;color:#ccc;border-radius:8px;border:1px solid rgba(255,255,255,.12)">
+      <button class="btn btn-primary" onclick="newQuestion()">New Question</button>
+      <select id="qSelect" onchange="newQuestion()" class="btn btn-secondary" style="padding:8px 12px;font-size:13px">
         <option value="-1">Random (curriculum)</option>
       </select>
     </div>
   </div>
+
   <div class="card">
-    <h3>Your Response (play as the LLM)</h3>
-    <textarea id="answerInput" placeholder="Type: <budget>20</budget><answer>Paris.</answer>"></textarea>
-    <div class="format-helper" onclick="insertTemplate()">💡 Click to insert format template</div>
+    <h3>Your Response</h3>
+
+    <!--
+      Two structured fields. The user never sees XML; we build the
+      <budget>N</budget><answer>X</answer> wire format in the submit
+      handler before posting to /api/step. If the backend ever changes
+      the wire shape, this is the only place that has to know.
+    -->
+    <div class="field">
+      <label for="budgetInput">Budget</label>
+      <input id="budgetInput" class="input" type="number" min="1" max="200"
+             placeholder="Enter budget (e.g., 40)"
+             oninput="validateForm()" />
+      <div class="helper" id="budgetHelper">A whole number between 1 and 200.</div>
+    </div>
+
+    <div class="field">
+      <label for="answerInput">Answer</label>
+      <textarea id="answerInput" placeholder="Enter answer"
+                oninput="validateForm()"></textarea>
+      <div class="helper" id="answerHelper">
+        Enter budget and answer separately. Format will be handled automatically.
+      </div>
+    </div>
+
     <div class="btn-row">
-      <button class="btn btn-primary" onclick="submitAnswer()">⚡ Submit & Score</button>
+      <button class="btn btn-primary" id="submitBtn" onclick="submitAnswer()" disabled>
+        Submit &amp; Score
+      </button>
+      <button class="btn btn-secondary" onclick="clearForm()">Clear</button>
     </div>
   </div>
+
   <div class="card" id="resultCard" style="display:none">
     <h3>Scoring Result</h3>
     <div id="resultContent"></div>
@@ -117,11 +297,14 @@ canvas{width:100%!important;height:100%!important}
 <div class="panel" id="panel-training">
   <div class="card">
     <h3>Training Simulation</h3>
-    <p style="color:#aaa;font-size:13px;margin-bottom:14px">Watch a simulated LLM train against your environment. It starts bad (no format, verbose) and gradually learns to be concise and correct.</p>
+    <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px">
+      Watch a simulated LLM train against your environment. It starts bad
+      (no format, verbose) and gradually learns to be concise and correct.
+    </p>
     <div class="sim-controls">
       <label>Episodes:</label>
       <input type="number" id="simEpisodes" value="60" min="10" max="200">
-      <button class="btn btn-primary" id="simBtn" onclick="runSimulation()">🚀 Start Training</button>
+      <button class="btn btn-primary" id="simBtn" onclick="runSimulation()">Start Training</button>
     </div>
     <div class="phase-indicator" id="phaseBar">
       <div class="phase-dot active" title="Phase 1"></div>
@@ -131,15 +314,15 @@ canvas{width:100%!important;height:100%!important}
     </div>
   </div>
   <div class="card"><h3>Reward Over Episodes</h3><div class="chart-container"><canvas id="rewardChart"></canvas></div></div>
-  <div class="card"><h3>Training Log</h3><div class="log-feed" id="logFeed"><div style="color:#666">Click Start Training to begin...</div></div></div>
+  <div class="card"><h3>Training Log</h3><div class="log-feed" id="logFeed"><div style="color:var(--text-faint)">Click Start Training to begin...</div></div></div>
 </div>
 </div>
 
 <script>
+/* ─── API & question loader ────────────────────────────────────────── */
 const API = '';
 let questions = [];
 
-// Load questions, then auto-pick one so the page is usable immediately
 fetch(API+'/api/questions').then(r=>r.json()).then(qs=>{
   questions=qs;
   const sel=document.getElementById('qSelect');
@@ -163,24 +346,114 @@ async function newQuestion(){
   document.getElementById('sEpisode').textContent=d.episode;
   document.getElementById('phaseLabel').textContent=d.phase;
   document.getElementById('resultCard').style.display='none';
-  document.getElementById('answerInput').value='';
+  clearForm();
 }
 
-function insertTemplate(){
-  document.getElementById('answerInput').value='<budget>30</budget><answer>Your answer here</answer>';
-  document.getElementById('answerInput').focus();
+/* ─── Structured input handling ───────────────────────────────────── */
+/**
+ * Validate Budget + Answer inputs and toggle the submit button.
+ * Returns ``true`` only when both fields are valid; called on every
+ * keystroke and from ``submitAnswer()`` as a final guard.
+ */
+function validateForm(){
+  const budgetEl=document.getElementById('budgetInput');
+  const answerEl=document.getElementById('answerInput');
+  const budgetHelper=document.getElementById('budgetHelper');
+  const answerHelper=document.getElementById('answerHelper');
+  const submitBtn=document.getElementById('submitBtn');
+
+  const rawBudget=budgetEl.value.trim();
+  const rawAnswer=answerEl.value.trim();
+
+  let budgetOk=false;
+  if(rawBudget===''){
+    budgetEl.classList.remove('invalid');
+    budgetHelper.classList.remove('error');
+    budgetHelper.textContent='A whole number between 1 and 200.';
+  } else {
+    const n=Number(rawBudget);
+    budgetOk=Number.isInteger(n)&&n>=1&&n<=200;
+    budgetEl.classList.toggle('invalid',!budgetOk);
+    budgetHelper.classList.toggle('error',!budgetOk);
+    budgetHelper.textContent=budgetOk
+      ? 'A whole number between 1 and 200.'
+      : 'Budget must be a whole number between 1 and 200.';
+  }
+
+  const answerOk=rawAnswer.length>0;
+  answerEl.classList.toggle('invalid',rawAnswer!==''&&!answerOk);
+  answerHelper.classList.toggle('error',rawAnswer!==''&&!answerOk);
+  if(rawAnswer===''){
+    answerHelper.textContent='Enter budget and answer separately. Format will be handled automatically.';
+  } else if(!answerOk){
+    answerHelper.textContent='Answer cannot be empty.';
+  } else {
+    answerHelper.textContent='Looks good — click Submit & Score.';
+  }
+
+  submitBtn.disabled=!(budgetOk&&answerOk);
+  return budgetOk&&answerOk;
+}
+
+function clearForm(){
+  document.getElementById('budgetInput').value='';
+  document.getElementById('answerInput').value='';
+  validateForm();
+}
+
+/**
+ * Build the wire-format string the backend expects.
+ *
+ * The backend hasn't changed — it still wants
+ * ``<budget>N</budget><answer>X</answer>``. The UI just hides that
+ * detail from the user. Centralising the formatter here means a
+ * future schema change touches one function, not the markup.
+ */
+function buildRawResponse(budget,answer){
+  return `<budget>${budget}</budget><answer>${answer}</answer>`;
 }
 
 async function submitAnswer(){
-  const raw=document.getElementById('answerInput').value.trim();
-  if(!raw)return;
-  const r=await fetch(API+'/api/step',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({raw_response:raw})});
-  const d=await r.json();
+  if(!validateForm())return;
+  const budget=document.getElementById('budgetInput').value.trim();
+  const answer=document.getElementById('answerInput').value.trim();
+  const raw=buildRawResponse(budget,answer);
+
+  const submitBtn=document.getElementById('submitBtn');
+  submitBtn.disabled=true;
+  const originalLabel=submitBtn.textContent;
+  submitBtn.textContent='Scoring...';
+
+  try{
+    const r=await fetch(API+'/api/step',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({raw_response:raw}),
+    });
+    const d=await r.json();
+    renderResult(d);
+  } catch(err){
+    const rc=document.getElementById('resultCard');
+    rc.style.display='block';
+    document.getElementById('resultContent').innerHTML=
+      `<div class="error-box">Network error: ${err.message||err}</div>`;
+  } finally {
+    submitBtn.textContent=originalLabel;
+    validateForm();
+  }
+}
+
+/* ─── Result rendering (unchanged shape, light-theme colours) ─────── */
+function renderResult(d){
   const rc=document.getElementById('resultCard');
   rc.style.display='block';
   rc.classList.remove('fade-in');void rc.offsetWidth;rc.classList.add('fade-in');
+
   if(d.error){
-    document.getElementById('resultContent').innerHTML=`<div class="error-box">❌ ${d.error}</div><div class="reward-big" style="color:#ff3d57;-webkit-text-fill-color:#ff3d57">${d.reward}</div><div class="reward-label">Reward (penalty)</div>`;
+    document.getElementById('resultContent').innerHTML=
+      `<div class="error-box">${d.error}</div>`+
+      `<div class="reward-big" style="background:none;-webkit-text-fill-color:#DC2626;color:#DC2626">${d.reward}</div>`+
+      `<div class="reward-label">Reward (penalty)</div>`;
     document.getElementById('sLast').textContent=d.reward;
     return;
   }
@@ -191,12 +464,17 @@ async function submitAnswer(){
     ['Keyword (5%)','keyword_verification'],['Format (5%)','format_quality']
   ];
   let html=`<div class="reward-big">${d.reward.toFixed(4)}</div><div class="reward-label">Final Weighted Reward</div>`;
-  html+=`<div style="text-align:center;font-size:12px;color:#888;margin:6px 0">Scored against: <span style="color:#aaa;font-style:italic">"${d.prompt}"</span></div>`;
-  html+=`<div class="info-row" style="justify-content:center;margin:12px 0"><span class="info-chip">Budget: ${d.budget}</span><span class="info-chip">Raw Tokens: ${d.tokens_used}</span><span class="info-chip">Answer Tokens: ${d.answer_token_count||'—'}</span><span class="info-chip">Avg: ${d.avg_reward}</span></div>`;
+  html+=`<div style="text-align:center;font-size:12px;color:var(--text-muted);margin:10px 0">Scored against: <span style="color:var(--text);font-style:italic">"${d.prompt}"</span></div>`;
+  html+=`<div class="info-row" style="justify-content:center;margin:12px 0">`+
+        `<span class="info-chip">Budget: ${d.budget}</span>`+
+        `<span class="info-chip">Raw Tokens: ${d.tokens_used}</span>`+
+        `<span class="info-chip">Answer Tokens: ${d.answer_token_count||'—'}</span>`+
+        `<span class="info-chip">Avg: ${d.avg_reward}</span>`+
+        `</div>`;
   html+=`<div class="score-grid">`;
   comps.forEach(([label,key])=>{
     const v=det[key]||0;const pct=Math.max(0,v*100);
-    const color=v>=0.7?'#00c853':v>=0.4?'#ffab00':'#ff3d57';
+    const color=v>=0.7?'var(--good)':v>=0.4?'var(--warn)':'var(--bad)';
     html+=`<div class="score-item"><span class="label">${label}</span><div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="val" style="color:${color}">${v.toFixed(2)}</span></div>`;
   });
   html+=`</div>`;
@@ -207,10 +485,10 @@ async function submitAnswer(){
   document.getElementById('phaseLabel').textContent=d.phase;
 }
 
-// ─── Training Simulation ───────────────────────────────────────
+/* ─── Training Simulation ─────────────────────────────────────────── */
 async function runSimulation(){
   const btn=document.getElementById('simBtn');
-  btn.disabled=true;btn.textContent='⏳ Training...';
+  btn.disabled=true;btn.textContent='Training...';
   const n=parseInt(document.getElementById('simEpisodes').value)||60;
   const log=document.getElementById('logFeed');log.innerHTML='';
   const r=await fetch(API+'/api/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({num_episodes:n})});
@@ -220,47 +498,45 @@ async function runSimulation(){
   canvas.width=canvas.parentElement.clientWidth;
   canvas.height=canvas.parentElement.clientHeight;
   const W=canvas.width,H=canvas.height;
-  let drawn=0;
+  const COLOR_REWARD='#F89868';
+  const COLOR_AVG='#FFB38A';
+  const COLOR_GRID='rgba(229,231,235,0.9)';
+  const COLOR_AXIS='rgba(229,231,235,1)';
+  const COLOR_TEXT='#9CA3AF';
   function drawChart(upTo){
     ctx.clearRect(0,0,W,H);
     const padL=50,padR=10,padT=20,padB=40;
     const cW=W-padL-padR,cH=H-padT-padB;
-    // Y range: -1 to 1
     function yPos(v){return padT+cH*(1-(v+1)/2);}
     function xPos(i){return padL+i*cW/(n-1);}
-    // Grid lines at -1, -0.5, 0, 0.5, 1
-    ctx.strokeStyle='rgba(255,255,255,0.05)';ctx.lineWidth=1;ctx.font='10px Inter';ctx.fillStyle='#555';
+    ctx.strokeStyle=COLOR_GRID;ctx.lineWidth=1;ctx.font='10px Inter';ctx.fillStyle=COLOR_TEXT;
     [-1,-0.5,0,0.5,1].forEach(v=>{const y=yPos(v);ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(W-padR,y);ctx.stroke();ctx.fillText(v.toFixed(1),4,y+4);});
-    // Zero line stronger
-    ctx.strokeStyle='rgba(255,255,255,0.15)';ctx.beginPath();ctx.moveTo(padL,yPos(0));ctx.lineTo(W-padR,yPos(0));ctx.stroke();
+    ctx.strokeStyle=COLOR_AXIS;ctx.beginPath();ctx.moveTo(padL,yPos(0));ctx.lineTo(W-padR,yPos(0));ctx.stroke();
     if(upTo<2)return;
-    // Reward line
-    ctx.beginPath();ctx.strokeStyle='#7b2ff7';ctx.lineWidth=2;
+    ctx.beginPath();ctx.strokeStyle=COLOR_REWARD;ctx.lineWidth=2;
     for(let i=0;i<upTo;i++){const x=xPos(i);const y=yPos(Math.max(-1,Math.min(1,data[i].reward)));i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
     ctx.stroke();
-    // Avg line
-    ctx.beginPath();ctx.strokeStyle='#00d2ff';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.strokeStyle=COLOR_AVG;ctx.lineWidth=2;ctx.setLineDash([4,4]);
     for(let i=0;i<upTo;i++){const x=xPos(i);const y=yPos(Math.max(-1,Math.min(1,data[i].avg_reward)));i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
     ctx.stroke();ctx.setLineDash([]);
-    // Legend
-    ctx.fillStyle='#7b2ff7';ctx.fillRect(W-160,10,12,3);ctx.fillStyle='#aaa';ctx.font='11px Inter';ctx.fillText('Reward',W-144,14);
-    ctx.fillStyle='#00d2ff';ctx.fillRect(W-160,22,12,3);ctx.fillStyle='#aaa';ctx.fillText('Avg (50ep)',W-144,26);
-    ctx.fillStyle='#555';ctx.font='10px Inter';ctx.fillText('Episode',W/2-20,H-4);
+    ctx.fillStyle=COLOR_REWARD;ctx.fillRect(W-160,10,12,3);ctx.fillStyle=COLOR_TEXT;ctx.font='11px Inter';ctx.fillText('Reward',W-144,14);
+    ctx.fillStyle=COLOR_AVG;ctx.fillRect(W-160,22,12,3);ctx.fillStyle=COLOR_TEXT;ctx.fillText('Avg (50ep)',W-144,26);
+    ctx.fillStyle=COLOR_TEXT;ctx.font='10px Inter';ctx.fillText('Episode',W/2-20,H-4);
   }
-  // Animate
   let i=0;
   const interval=setInterval(()=>{
-    if(i>=data.length){clearInterval(interval);btn.disabled=false;btn.textContent='🚀 Start Training';return;}
+    if(i>=data.length){clearInterval(interval);btn.disabled=false;btn.textContent='Start Training';return;}
     const ep=data[i];
-    const color=ep.reward>=0.7?'#00c853':ep.reward>=0.3?'#ffab00':'#ff3d57';
+    const color=ep.reward>=0.7?'var(--good)':ep.reward>=0.3?'var(--warn)':'var(--bad)';
     log.innerHTML=`<div class="log-line"><span class="ep">EP ${ep.episode}</span> | <span class="rw" style="color:${color}">${ep.reward.toFixed(3)}</span> | avg=${ep.avg_reward} | ${ep.phase} | skill=${ep.skill} | ${ep.prompt}</div>`+log.innerHTML;
-    // Update phase dots
     const phaseNum=parseInt(ep.phase.match(/\d/)?.[0]||1);
     document.querySelectorAll('#phaseBar .phase-dot').forEach((d,j)=>{d.className='phase-dot'+(j<phaseNum-1?' done':'')+(j===phaseNum-1?' active':'')});
     drawChart(i+1);
     i++;
   },80);
 }
+
+validateForm();
 </script>
 </body>
 </html>

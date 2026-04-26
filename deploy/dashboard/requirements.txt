@@ -1,0 +1,30 @@
+# Direct dependencies for the TokenEfficiencyEnv Playground HF Space.
+#
+# Floors are the same as token_efficiency_env/pyproject.toml so the
+# dashboard runs the exact same scoring code path the GRPO trainer uses.
+# We don't pin upper bounds because HF Spaces builds are short-lived and
+# we want to pick up bug-fixes automatically; if a future minor release
+# breaks the build, lock it here.
+#
+# Note: openenv-core is required transitively by token_efficiency_env
+# (TokenEfficiencyEnvironment subclasses Environment from openenv.core),
+# so it must be present even though the dashboard itself never imports
+# from openenv directly.
+
+# Web framework + ASGI server
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# Data validation
+pydantic>=2.7.0
+
+# OpenEnv runtime (provides Environment base class, Action/Observation)
+openenv-core[core]>=0.2.2
+
+# Tokenizer for the env's raw_token_count diagnostic
+transformers>=4.44.0
+tokenizers>=0.20.0
+
+# LLM judge: HF Inference client. Falls back to KeywordJudge automatically
+# if HF_TOKEN is not set as a Space secret.
+huggingface_hub>=0.26.0
